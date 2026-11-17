@@ -1,0 +1,750 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agent Shield</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Inter+Tight:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#0b0d10; --panel:#12161b; --panel2:#181d24; --line:#232a32; --line2:#323b46; --ink:#e8edf2; --muted:#93a0ad; --faint:#64707d;
+  --critical:#ff4d57; --high:#ff8f45; --medium:#f2c94c; --low:#4cc3f2; --info:#7b8794; --ok:#3ddc97; --accent:#e8edf2; --accent-ink:#0b0d10;
+  --mono:'IBM Plex Mono',ui-monospace,SFMono-Regular,Menlo,monospace; --sans:'Inter Tight',system-ui,-apple-system,Segoe UI,sans-serif;
+  --radius:12px;
+}
+:root[data-theme="light"]{
+  --bg:#f4f6f8; --panel:#ffffff; --panel2:#f0f3f6; --line:#e1e6eb; --line2:#cfd6dd; --ink:#11161c; --muted:#56616d; --faint:#8a95a1;
+  --critical:#d92c37; --high:#d9681e; --medium:#b88a00; --low:#1f8fc2; --ok:#16a06a; --accent:#11161c; --accent-ink:#ffffff;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 var(--sans)}
+button,input{font:inherit;color:inherit}
+button{cursor:pointer}
+a{color:inherit}
+[hidden]{display:none!important}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+
+/* header */
+.top{display:flex;align-items:center;gap:14px;padding:12px 24px;border-bottom:1px solid var(--line);position:sticky;top:0;background:color-mix(in srgb,var(--bg) 92%,transparent);backdrop-filter:blur(8px);z-index:10;flex-wrap:wrap}
+.brand{display:flex;align-items:center;gap:10px;font-weight:700;font-size:18px}
+.brand svg{width:26px;height:26px}
+.chip-target{font:500 12px var(--mono);color:var(--muted);padding:4px 9px;border:1px solid var(--line);border-radius:7px}
+.live{display:flex;align-items:center;gap:7px;font:500 12.5px var(--sans);color:var(--muted)}
+.dot{width:9px;height:9px;border-radius:50%;background:var(--faint);flex:none}
+.live.on .dot,.mon .dot{background:var(--ok);animation:ping 1.8s infinite}
+@keyframes ping{0%{box-shadow:0 0 0 0 color-mix(in srgb,var(--ok) 60%,transparent)}100%{box-shadow:0 0 0 9px transparent}}
+.spacer{flex:1}
+.btn{background:var(--panel2);border:1px solid var(--line);border-radius:9px;padding:8px 14px;font-size:14px;font-weight:500;display:inline-flex;align-items:center;gap:8px}
+.btn:hover{border-color:var(--line2)}
+.btn:disabled{opacity:.55;cursor:default}
+.btn.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.btn.ghost{background:transparent}
+.btn.warn{border-color:color-mix(in srgb,var(--critical) 45%,var(--line));color:var(--critical)}
+.btn.small{padding:6px 11px;font-size:13px}
+
+.page{max-width:1280px;margin:0 auto;padding:22px 24px 60px}
+section{margin-bottom:28px}
+.h{display:flex;align-items:baseline;gap:12px;margin:0 0 12px;flex-wrap:wrap}
+.h h2{font-size:18px;margin:0;font-weight:600}
+.h p{margin:0;color:var(--muted);font-size:14px}
+
+/* status banner */
+.banner{display:grid;grid-template-columns:auto 1fr auto;gap:20px;align-items:center;padding:22px 24px;border-radius:16px;border:1px solid var(--line);background:var(--panel);position:relative;overflow:hidden}
+.banner::before{content:"";position:absolute;inset:0;background:radial-gradient(600px 200px at 0% 0%,color-mix(in srgb,var(--tone) 22%,transparent),transparent 70%);pointer-events:none}
+.banner .icon{width:60px;height:60px;border-radius:16px;display:grid;place-items:center;background:color-mix(in srgb,var(--tone) 16%,transparent);color:var(--tone);position:relative}
+.banner .icon svg{width:32px;height:32px}
+.banner h1{margin:0;font-size:24px;line-height:1.25;letter-spacing:-.2px}
+.banner .sub{margin:6px 0 0;color:var(--muted)}
+.banner .next{margin-top:12px;padding:10px 12px;border-radius:10px;background:var(--panel2);font-size:14px;max-width:820px}
+.banner .next b{color:var(--tone)}
+.counts{display:flex;gap:10px;position:relative}
+.count{min-width:86px;text-align:center;padding:10px 8px;border-radius:12px;background:var(--panel2);border:1px solid var(--line)}
+.count .n{font:600 26px/1 var(--mono)}
+.count .l{font-size:12px;color:var(--muted);margin-top:5px}
+.count.crit .n{color:var(--critical)} .count.high .n{color:var(--high)} .count.med .n{color:var(--medium)}
+@media (max-width:860px){.banner{grid-template-columns:1fr}.counts{justify-content:flex-start;flex-wrap:wrap}}
+
+/* scan cards */
+.grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
+@media (max-width:1000px){.grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (max-width:640px){.grid{grid-template-columns:1fr}}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:16px;display:flex;flex-direction:column;gap:10px;min-width:0}
+.card .top-row{display:flex;gap:12px;align-items:flex-start}
+.card .ic{width:40px;height:40px;border-radius:10px;background:var(--panel2);display:grid;place-items:center;flex:none;color:var(--ink)}
+.card .ic svg{width:22px;height:22px}
+.card h3{margin:0;font-size:16px}
+.card .desc{margin:2px 0 0;color:var(--muted);font-size:13.5px}
+.result{display:flex;align-items:center;gap:8px;font-size:13.5px;padding:8px 10px;border-radius:9px;background:var(--panel2);min-height:38px}
+.result .dot{animation:none}
+.result.ok .dot{background:var(--ok)} .result.warn .dot{background:var(--medium)} .result.bad .dot{background:var(--critical)} .result.err .dot{background:var(--high)} .result.idle .dot{background:var(--faint)}
+.result .when{margin-left:auto;color:var(--faint);font-size:12px;white-space:nowrap}
+.card .actions{display:flex;gap:8px;align-items:center;margin-top:auto;flex-wrap:wrap}
+.spin{width:14px;height:14px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:rot .8s linear infinite}
+@keyframes rot{to{transform:rotate(360deg)}}
+.field{display:flex;flex-direction:column;gap:6px}
+.field input[type=url]{background:var(--panel2);border:1px solid var(--line);border-radius:9px;padding:8px 10px;font-size:13.5px;width:100%}
+.field label{font-size:12.5px;color:var(--muted);display:flex;gap:7px;align-items:flex-start}
+details.more summary{cursor:pointer;color:var(--muted);font-size:13px;list-style:none}
+details.more summary::-webkit-details-marker{display:none}
+details.more summary::before{content:"▸ ";}
+details.more[open] summary::before{content:"▾ ";}
+.passed{list-style:none;padding:0;margin:8px 0 0;font-size:13px}
+.passed li{padding:2px 0 2px 20px;position:relative;color:var(--muted)}
+.passed li::before{content:"✓";position:absolute;left:0;color:var(--ok)}
+
+/* monitors */
+.mons{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+@media (max-width:900px){.mons{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.mon{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:14px;display:flex;gap:10px;align-items:flex-start}
+.mon .dot{margin-top:6px}
+.mon b{display:block;font-size:14.5px}
+.mon span{color:var(--muted);font-size:13px}
+
+/* alerts */
+.toolbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px}
+.seg{border:1px solid var(--line);background:transparent;border-radius:999px;padding:6px 12px;font-size:13px;color:var(--muted);display:inline-flex;gap:6px;align-items:center}
+.seg .c{font:500 11px var(--mono);background:var(--panel2);padding:1px 6px;border-radius:999px}
+.seg.on{color:var(--ink);border-color:var(--line2);background:var(--panel2)}
+.search{margin-left:auto;background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:7px 14px;font-size:13.5px;min-width:220px}
+@media (max-width:640px){.search{margin-left:0;width:100%}}
+.alerts{display:flex;flex-direction:column;gap:8px}
+.al{background:var(--panel);border:1px solid var(--line);border-left:4px solid var(--c);border-radius:10px}
+.al.new{animation:arrive .9s ease-out}
+@keyframes arrive{from{transform:translateY(-4px);background:var(--panel2)}to{transform:none}}
+.al.done{opacity:.55}
+.al summary{list-style:none;cursor:pointer;display:grid;grid-template-columns:auto 1fr auto;gap:12px;align-items:center;padding:12px 14px}
+.al summary::-webkit-details-marker{display:none}
+.tag{font:600 11px var(--sans);letter-spacing:.3px;padding:3px 8px;border-radius:6px;background:color-mix(in srgb,var(--c) 16%,transparent);color:var(--c);white-space:nowrap}
+.al .ttl{font-weight:600;font-size:14.5px;min-width:0;overflow-wrap:anywhere}
+.al .meta{color:var(--faint);font-size:12.5px;white-space:nowrap;display:flex;gap:10px}
+.al .body{padding:0 14px 14px 14px;display:grid;gap:10px}
+.al .what{color:var(--ink);opacity:.9;font-size:14px;overflow-wrap:anywhere}
+.al .todo{padding:10px 12px;border-radius:9px;background:color-mix(in srgb,var(--ok) 9%,var(--panel2));font-size:14px}
+.al .todo b{color:var(--ok)}
+.refs{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+.ref{font-size:11.5px;color:var(--muted);background:var(--panel2);border:1px solid var(--line);border-radius:6px;padding:2px 7px;white-space:nowrap}
+.ref b{color:var(--ink);font:600 11px var(--mono)}
+.al .facts{display:flex;gap:16px;flex-wrap:wrap;font:400 12px var(--mono);color:var(--muted);overflow-wrap:anywhere}
+.empty{padding:34px;text-align:center;color:var(--muted);border:1px dashed var(--line2);border-radius:12px}
+.empty b{display:block;color:var(--ink);font-size:16px;margin-bottom:4px}
+
+/* drills + advanced */
+.two{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media (max-width:900px){.two{grid-template-columns:1fr}}
+.drills{display:flex;gap:8px;flex-wrap:wrap}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:4px 14px;font-size:13px}
+.kv dt{color:var(--muted)} .kv dd{margin:0;font-family:var(--mono);font-size:12px;overflow-wrap:anywhere}
+.fam{display:grid;grid-template-columns:100px 1fr 40px;gap:8px;align-items:center;font-size:12.5px;margin:4px 0}
+.track{height:7px;background:var(--panel2);border-radius:4px;overflow:hidden}.track i{display:block;height:100%}
+.rt{display:flex;justify-content:space-between;gap:10px;font-size:12.5px;margin:3px 0}
+.mail{font-size:12.5px;color:var(--muted);border-top:1px solid var(--line);padding-top:6px;margin-top:6px}
+
+/* toasts + flash */
+.toasts{position:fixed;right:18px;bottom:18px;display:flex;flex-direction:column;gap:10px;z-index:30;max-width:380px}
+.toast{background:var(--panel);border:1px solid var(--c);border-left:4px solid var(--c);border-radius:10px;padding:12px 14px;box-shadow:0 12px 30px rgba(0,0,0,.35);animation:arrive .4s;cursor:pointer}
+.toast b{display:block;color:var(--c);font-size:12.5px;margin-bottom:2px}
+@media (max-width:640px){.toasts{left:16px;right:16px;max-width:none}}
+.flash{position:fixed;inset:0;pointer-events:none;box-shadow:inset 0 0 0 4px var(--critical);opacity:0;z-index:40}
+.flash.go{animation:flash 1.6s ease-out}
+@keyframes flash{0%,40%{opacity:1}100%{opacity:0}}
+.help{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 16px;font-size:14px;color:var(--muted);margin-bottom:18px}
+.help b{color:var(--ink)}
+code{font:12.5px var(--mono);background:var(--panel2);padding:1px 5px;border-radius:5px}
+
+/* ---- interactive extras ---- */
+.count{cursor:pointer;transition:transform .15s,border-color .15s;font:inherit;color:inherit}
+.count:hover{border-color:var(--line2);transform:translateY(-1px)}
+.count.sel{border-color:var(--ink)}
+.count.bump .n{animation:bump .5s}
+@keyframes bump{40%{transform:scale(1.25)}}
+.mon{cursor:pointer;text-align:left;font:inherit;color:inherit;transition:border-color .15s,transform .15s;width:100%}
+.mon:hover{border-color:var(--line2);transform:translateY(-1px)}
+.mon.bump{animation:glow 1s}
+@keyframes glow{0%{border-color:var(--ok)}100%{border-color:var(--line)}}
+.mon .go{margin-left:auto;color:var(--faint);font-size:12px;white-space:nowrap;align-self:center}
+.card.running{border-color:color-mix(in srgb,var(--ink) 30%,var(--line))}
+.card.finished{animation:finish 1.4s}
+@keyframes finish{0%{box-shadow:0 0 0 0 color-mix(in srgb,var(--tone,var(--ok)) 55%,transparent)}100%{box-shadow:0 0 0 14px transparent}}
+.bar{height:3px;border-radius:2px;background:var(--panel2);overflow:hidden;position:relative}
+.bar i{position:absolute;inset:0 auto 0 0;width:35%;background:var(--ink);opacity:.6;animation:slide 1.2s ease-in-out infinite}
+@keyframes slide{0%{left:-35%}100%{left:100%}}
+.linkbtn{background:none;border:0;padding:0;color:var(--ink);text-decoration:underline;text-underline-offset:3px;font-size:13px}
+.filters{display:flex;gap:8px;flex-wrap:wrap;margin:-4px 0 10px}
+.fchip{display:inline-flex;align-items:center;gap:6px;padding:4px 6px 4px 11px;border-radius:999px;background:var(--panel2);border:1px solid var(--line2);font-size:13px}
+.fchip button{border:0;background:var(--line);border-radius:50%;width:22px;height:22px;display:grid;place-items:center;font-size:13px;line-height:1}
+.al.cur{outline:2px solid var(--ink);outline-offset:2px}
+.al .row-actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.al[open] summary{border-bottom:1px solid var(--line);margin-bottom:12px}
+.al .body{animation:open .2s ease-out}
+@keyframes open{from{opacity:0;transform:translateY(-3px)}}
+.feed-act{padding:8px 0 0;font-size:13.5px}
+.activity{list-style:none;margin:12px 0 0;padding:0;background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);max-height:228px;overflow:auto}
+.activity li{display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:center;padding:9px 14px;border-bottom:1px solid var(--line);font-size:13.5px}
+.activity li:last-child{border-bottom:0}
+.activity li.new{animation:arrive .6s}
+.activity .dot{animation:none;background:var(--c,var(--faint))}
+.activity time{color:var(--faint);font-size:12px;white-space:nowrap}
+.activity .t{min-width:0;overflow-wrap:anywhere}
+.activity.empty-list li{color:var(--muted);grid-template-columns:1fr}
+.kbd{font:500 11.5px var(--mono);border:1px solid var(--line2);border-bottom-width:2px;border-radius:5px;padding:0 5px}
+.snack{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:9px 16px;border-radius:999px;font-size:14px;z-index:50;animation:arrive .25s}
+.totop{position:fixed;right:18px;bottom:18px;width:44px;height:44px;border-radius:50%;background:var(--panel);border:1px solid var(--line2);display:grid;place-items:center;z-index:20;box-shadow:0 8px 20px rgba(0,0,0,.25)}
+.lbl{display:inline}
+.h .h-act{margin-left:auto}
+
+/* connected tools */
+.tools{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+@media (max-width:1000px){.tools{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.tool{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:14px;display:flex;flex-direction:column;gap:6px;min-width:0}
+.tool .row{display:flex;align-items:center;gap:8px}
+.tool b{font-size:14.5px}
+.pill{margin-left:auto;font:600 11px var(--sans);padding:2px 8px;border-radius:999px;white-space:nowrap}
+.pill.on{color:var(--ok);background:color-mix(in srgb,var(--ok) 14%,transparent)}
+.pill.off{color:var(--muted);background:var(--panel2)}
+.pill.warn{color:var(--medium);background:color-mix(in srgb,var(--medium) 14%,transparent)}
+.tool .st{font-size:13px;color:var(--ink);overflow-wrap:anywhere}
+.tool .how{font-size:12.5px;color:var(--muted);overflow-wrap:anywhere}
+.tool details summary{cursor:pointer;font-size:12.5px;color:var(--muted)}
+.tool ul{margin:6px 0 0;padding-left:18px;font-size:12.5px;color:var(--muted)}
+.cov{height:6px;border-radius:3px;background:var(--panel2);overflow:hidden}.cov i{display:block;height:100%;background:var(--ok)}
+
+/* ---- phones and small tablets ---- */
+@media (max-width:760px){
+  .top{padding:10px 16px;gap:8px;flex-wrap:nowrap}
+  .chip-target{display:none}
+  .lbl{display:none}
+  .top .btn.small{width:40px;height:40px;padding:0;justify-content:center}
+  .brand{font-size:16px}
+  .page{padding:16px 16px 90px}
+  section{margin-bottom:22px}
+  .banner{padding:16px;gap:14px;border-radius:14px}
+  .banner .icon{width:44px;height:44px;border-radius:12px}.banner .icon svg{width:24px;height:24px}
+  .banner h1{font-size:20px}
+  .counts{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+  .count{min-width:0;padding:10px 4px}
+  .h .h-act{margin-left:0;width:100%}
+  .h .h-act .btn{width:100%;justify-content:center;min-height:44px}
+  .card .actions .btn{min-height:42px;flex:1;justify-content:center}
+  .mons{grid-template-columns:1fr 1fr;gap:8px}
+  .tools{grid-template-columns:1fr}
+  .mon{padding:12px;flex-wrap:wrap}.mon .go{display:none}
+  .toolbar{flex-wrap:nowrap;overflow-x:auto;margin:0 -16px 12px;padding:0 16px 4px;scrollbar-width:none}
+  .toolbar::-webkit-scrollbar{display:none}
+  .seg{flex:none;min-height:36px}
+  .toolbar .search{order:-1;flex:none;width:200px;min-width:0}
+  .al summary{grid-template-columns:auto 1fr;grid-template-areas:"tag meta" "ttl ttl";gap:6px 10px;padding:12px}
+  .al .tag{grid-area:tag;justify-self:start}.al .meta{grid-area:meta;justify-self:end;font-size:12px}.al .ttl{grid-area:ttl}
+  .al .body{padding:0 12px 12px}
+  .al .row-actions .btn{flex:1;justify-content:center;min-height:42px}
+  .drills{display:grid;grid-template-columns:1fr 1fr}
+  .drills .btn{justify-content:center;min-height:42px}
+  .fam{grid-template-columns:80px 1fr 36px}
+  .snack{bottom:80px}
+}
+@media (max-width:380px){.al .meta span:first-child{display:none}.mons{grid-template-columns:1fr}}
+@media (hover:none){.count:hover,.mon:hover{transform:none}}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<div class="flash" id="flash"></div>
+
+<header class="top">
+  <div class="brand">
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 2 3.5 5.5v6c0 5 3.6 9.2 8.5 10.5 4.9-1.3 8.5-5.5 8.5-10.5v-6L12 2Z" stroke="currentColor" stroke-width="1.6"/><path d="m8.5 12 2.4 2.4 4.6-4.8" stroke="#3ddc97" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    Agent Shield
+  </div>
+  <span class="chip-target" id="target">—</span>
+  <span class="live" id="live"><span class="dot"></span><span id="liveText">connecting…</span></span>
+  <span class="spacer"></span>
+  <button class="btn ghost small" id="helpBtn" aria-expanded="false" aria-label="How this works" title="How this works (?)"><span aria-hidden="true">?</span><span class="lbl">How this works</span></button>
+  <button class="btn ghost small" id="notifyBtn" aria-label="Desktop alerts" title="Desktop alerts"><span aria-hidden="true" id="notifyIc">🔔</span><span class="lbl" id="notifyLbl">Desktop alerts</span></button>
+  <button class="btn ghost small" id="themeBtn" aria-label="Switch light or dark"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 0 0 18z" fill="currentColor"/></svg></button>
+</header>
+
+<main class="page">
+  <div class="help" id="help" hidden>
+    <b>Agent Shield watches your AI agents and the systems around them.</b> The banner tells you if anything needs you. <b>Run a scan</b> checks something on demand; <b>Always watching</b> runs by itself and raises alerts the moment something happens. Open an alert to see what happened and exactly what to do, then press <b>Mark as handled</b>. Serious alerts also flash the screen, and are emailed to the support team. The <b>practice drills</b> fake an attack inside a sandbox folder so you can see it all work. Nothing real is touched.
+    <div style="margin-top:10px">Keys: <span class="kbd">/</span> search · <span class="kbd">j</span> <span class="kbd">k</span> move between alerts · <span class="kbd">o</span> open · <span class="kbd">e</span> mark handled · <span class="kbd">c</span> copy · <span class="kbd">Esc</span> clear filters · <span class="kbd">?</span> this help</div>
+  </div>
+
+  <!-- 1. Are we safe? -->
+  <section>
+    <div class="banner" id="banner" style="--tone:var(--ok)">
+      <div class="icon" id="bannerIcon"></div>
+      <div>
+        <h1 id="bannerTitle">Checking…</h1>
+        <p class="sub" id="bannerSub"></p>
+        <div class="next" id="bannerNext" hidden></div>
+      </div>
+      <div class="counts">
+        <button class="count crit" data-sev="critical" title="Show only these"><div class="n" id="n-critical">0</div><div class="l">Act now</div></button>
+        <button class="count high" data-sev="high" title="Show only these"><div class="n" id="n-high">0</div><div class="l">Today</div></button>
+        <button class="count med" data-sev="medium" title="Show only these"><div class="n" id="n-medium">0</div><div class="l">This week</div></button>
+      </div>
+    </div>
+  </section>
+
+  <!-- 2. Run a scan -->
+  <section>
+    <div class="h"><h2>Run a scan</h2><p>Check something now. Results appear in the alerts below.</p><span class="h-act"><button class="btn primary small" id="scanAll">Scan everything</button></span></div>
+    <div class="grid" id="scanGrid"></div>
+  </section>
+
+  <!-- 3. Always watching -->
+  <section>
+    <div class="h"><h2>Always watching</h2><p>These run on their own and alert you the moment something happens.</p></div>
+    <div class="mons" id="mons"></div>
+    <ul class="activity empty-list" id="activity" aria-live="polite"><li>Activity will appear here as it happens.</li></ul>
+  </section>
+
+  <section>
+    <div class="h"><h2>Connected tools</h2><p>Established security tools Agent Shield drives or listens to.</p></div>
+    <div class="tools" id="tools"></div>
+  </section>
+
+  <!-- 4. Alerts -->
+  <section id="alertsSection">
+    <div class="h"><h2>Alerts</h2><p id="alertsSub">Most urgent first. Open one to see what to do.</p></div>
+    <div class="toolbar" id="toolbar"></div>
+    <div class="filters" id="filters" hidden></div>
+    <div class="alerts" id="feed"></div>
+  </section>
+
+  <!-- 5. Drills and details -->
+  <section class="two">
+    <div class="card">
+      <div class="top-row"><div class="ic">🧪</div><div><h3>Practice drills</h3><p class="desc">Fake an attack to see Agent Shield catch it. Safe: everything happens inside the <code>sandbox/</code> folder.</p></div></div>
+      <div class="drills">
+        <button class="btn warn small" data-drill="artex">AI-driven intrusion</button>
+        <button class="btn warn small" data-drill="ransomware">Ransomware</button>
+        <button class="btn warn small" data-drill="finance">Payment fraud</button>
+        <button class="btn warn small" data-drill="recon">Unlogged payment</button>
+        <button class="btn warn small" data-drill="stratus">Stratus cloud attacks</button>
+        <button class="btn small ghost" data-drill="reset">Reset drill files</button>
+      </div>
+    </div>
+    <div class="card">
+      <div class="top-row"><div class="ic">✉️</div><div><h3>Support team email</h3><p class="desc" id="emailDesc"></p></div></div>
+      <div id="emailList"></div>
+    </div>
+  </section>
+
+  <section>
+    <details class="card more" id="adv">
+      <summary>Technical details: injection guard, model red-team, monitored folders</summary>
+      <div class="two" style="margin-top:10px">
+        <div><h3 style="font-size:15px;margin:4px 0 8px">Prompt-injection guard</h3><div id="probe" class="desc">Run the code scan to test it.</div></div>
+        <div><h3 style="font-size:15px;margin:4px 0 8px">Model red-team (promptfoo + garak)</h3><div id="redteam" class="desc"></div></div>
+      </div>
+      <dl class="kv" id="paths" style="margin-top:14px"></dl>
+    </details>
+  </section>
+</main>
+<div class="toasts" id="toasts" aria-live="polite"></div>
+<button class="totop" id="totop" aria-label="Back to top" hidden>↑</button>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const SEV = ["info", "low", "medium", "high", "critical"];
+const PLAIN = { critical: "Act now", high: "Today", medium: "This week", low: "When convenient", info: "For information" };
+const AREA = { identity: "Sign-ins & cloud", network: "Outbound traffic", ransomware: "Ransomware", finance: "Payments", access: "Access control", llm: "AI model", code: "Code", web: "Website", system: "System" };
+const ICON = {
+  ok: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 4 5v6c0 5 3.4 9 8 10 4.6-1 8-5 8-10V5l-8-3Z"/><path d="m9 12 2 2 4-4"/></svg>',
+  warn: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/><path d="M12 9v4M12 17h.01"/></svg>',
+  bad: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 7v6M12 17h.01"/></svg>',
+};
+const SCANS = [
+  { k: "code", name: "Agent code", icon: "⌨️", desc: "Looks for payments without approval, leaked keys, unsafe AI prompts and open cloud permissions." },
+  { k: "website", name: "Website", icon: "🌐", desc: "Checks the live site's security settings, exposed files and source maps. Read-only, about 20 requests." },
+  { k: "system", name: "This computer", icon: "🖥️", desc: "Open network ports, admin rights, SSH settings, and who can read key files." },
+  { k: "deps", name: "Software packages", icon: "📦", desc: "Known security holes in the agent's libraries (npm audit, OSV), ranked by real-world exploitation (CISA KEV, EPSS)." },
+  { k: "supply", name: "Supply chain", icon: "🔏", desc: "Verifies npm registry signatures, lockfile hashes and SLSA build provenance; flags install scripts; builds an SBOM." },
+  { k: "secrets", name: "Secrets in history", icon: "🔑", desc: "Searches every commit, not just today's files, for keys and tokens that were ever pushed." },
+  { k: "fuzz", name: "Guard fuzzing", icon: "🧪", desc: "Thousands of generated inputs against the agent's injection guard: crashes, slow regexes (ReDoS) and rewritten attacks." },
+  { k: "cloud", name: "Cloud & sign-in logs", icon: "☁️", desc: "Hunts AWS CloudTrail and traffic logs for AI-driven intrusion patterns like ARTEX." },
+  { k: "model", name: "AI model red-team", icon: "🎯", desc: "Tries 12 planted-instruction attacks on the live model (promptfoo). Uses API credit." },
+];
+let token = ""; try { token = sessionStorage.getItem("shieldToken") || ""; } catch {}
+let alerts = new Map(), area = "all", showDone = false, q = "", fresh = new Set(), audioOK = false, scans = {}, open = new Set();
+let sev = null, scanF = null, cur = -1, confirmAll = 0, lastCounts = {}, lastMon = {}, activityLog = [], scanAll = null, finished = new Set();
+const SCAN_NAME = Object.fromEntries([["code","Agent code"],["website","Website"],["system","This computer"],["deps","Software packages"],["supply","Supply chain"],["secrets","Secrets in history"],["fuzz","Guard fuzzing"],["cloud","Cloud & sign-in logs"],["model","AI model red-team"]]);
+let REF_NAMES = {};
+const MON_AREA = { "Payments": "finance", "Files (ransomware)": "ransomware", "Sign-ins & cloud": "identity", "Outbound traffic": "network" };
+
+async function api(path, opts = {}) {
+  const r = await fetch(path, { ...opts, headers: { "content-type": "application/json", ...(token ? { authorization: "Bearer " + token } : {}) } });
+  if (r.status === 401) {
+    token = prompt("Agent Shield access token") || "";
+    try { sessionStorage.setItem("shieldToken", token); } catch {}
+    return api(path, opts);
+  }
+  return r.json().catch(() => ({}));
+}
+function ago(iso) {
+  if (!iso) return "";
+  const s = Math.max(0, Math.round((Date.now() - Date.parse(iso)) / 1000));
+  return s < 45 ? "just now" : s < 3600 ? Math.round(s / 60) + " min ago" : s < 86400 ? Math.round(s / 3600) + " h ago" : new Date(iso).toLocaleDateString();
+}
+
+// ---- banner -------------------------------------------------------------
+function banner() {
+  const openAlerts = [...alerts.values()].filter((a) => !a.acknowledged);
+  const c = (s) => openAlerts.filter((a) => a.severity === s).length;
+  for (const s of ["critical", "high", "medium"]) {
+    const n = c(s), el = $("n-" + s), box = el.parentElement;
+    if (lastCounts[s] !== undefined && n > lastCounts[s]) { box.classList.remove("bump"); void box.offsetWidth; box.classList.add("bump"); }
+    lastCounts[s] = n; el.textContent = n; box.classList.toggle("sel", sev === s);
+    box.setAttribute("aria-pressed", String(sev === s)); box.title = sev === s ? "Show all alerts" : `Show only "${PLAIN[s]}" alerts`;
+  }
+  const worst = openAlerts.sort((a, b) => SEV.indexOf(b.severity) - SEV.indexOf(a.severity) || b.at.localeCompare(a.at))[0];
+  let tone = "var(--ok)", icon = ICON.ok, title = "All clear", sub = "No open alerts. Agent Shield is watching.";
+  if (worst && worst.severity === "critical") { tone = "var(--critical)"; icon = ICON.bad; title = c("critical") === 1 ? "1 problem needs you now" : `${c("critical")} problems need you now`; sub = "Start with the first one below; each alert says exactly what to do."; }
+  else if (worst && worst.severity === "high") { tone = "var(--high)"; icon = ICON.warn; title = `${c("high")} thing${c("high") === 1 ? "" : "s"} to fix today`; sub = "Nothing urgent, but these should not wait."; }
+  else if (worst && worst.severity === "medium") { tone = "var(--medium)"; icon = ICON.warn; title = "Safe, with some things to tidy up"; sub = `${c("medium")} item${c("medium") === 1 ? "" : "s"} to handle this week.`; }
+  else if (worst) { sub = `${openAlerts.length} minor item${openAlerts.length === 1 ? "" : "s"} for when you have time.`; }
+  $("banner").style.setProperty("--tone", tone);
+  $("bannerIcon").innerHTML = icon; $("bannerTitle").textContent = title; $("bannerSub").textContent = sub;
+  const n = $("bannerNext");
+  if (worst && SEV.indexOf(worst.severity) >= 3) { n.hidden = false; n.innerHTML = `<b>First:</b> ${esc(worst.title)}. ${esc(worst.fix || "")} <a href="#" data-open="${worst.id}">Open alert</a>`; }
+  else n.hidden = true;
+}
+
+// ---- scan cards ---------------------------------------------------------
+function scanCards() {
+  if (document.activeElement && document.activeElement.id === "siteUrl") { clearTimeout(scanCards.t); scanCards.t = setTimeout(scanCards, 800); return; }
+  $("scanGrid").innerHTML = SCANS.map(({ k, name, icon, desc }) => {
+    const s = scans[k] || {};
+    const cls = s.running ? "idle" : s.error ? "err" : !s.at ? "idle" : s.worst === "critical" || s.worst === "high" ? "bad" : s.issues ? "warn" : "ok";
+    const head = s.running ? "Scanning…" : s.error ? "Could not finish" : !s.at ? "Not run yet" : s.issues ? `${s.issues} issue${s.issues === 1 ? "" : "s"} found` : "No issues found";
+    const text = `<span><b style="font-weight:600">${head}</b>${!s.running && (s.error || s.summary) ? `<br><span class="desc" style="font-size:12.5px">${esc(s.error || s.summary)}</span>` : ""}</span>`;
+    const site = k === "website" ? `<div class="field"><input type="url" id="siteUrl" placeholder="https://your-site.example" value="${esc(sessionGet("siteUrl") || scans.websiteDefault || "")}" aria-label="Website address">
+      <label id="authRow" hidden><input type="checkbox" id="siteAuth"> I own this site or am authorised to test it</label></div>` : "";
+    const disabled = s.running || (k === "model" && !scans.modelReady);
+    const note = k === "model" && !scans.modelReady ? `<span class="desc" style="font-size:12.5px">Needs a model API key on the server.</span>` : "";
+    const passed = (s.passed || []).length ? `<details class="more"><summary>${s.passed.length} check${s.passed.length === 1 ? "" : "s"} passed</summary><ul class="passed">${s.passed.map((p) => `<li>${esc(p)}</li>`).join("")}</ul></details>` : "";
+    const tone = cls === "bad" ? "var(--critical)" : cls === "warn" ? "var(--medium)" : cls === "err" ? "var(--high)" : "var(--ok)";
+    const ids = (s.ids || []).filter((id) => alerts.has(id));
+    const view = (!s.running && ids.length ? `<button class="linkbtn" data-view="${k}">View ${ids.length} alert${ids.length === 1 ? "" : "s"}</button>` : "")
+      + (k === "supply" && s.detail && s.detail.sbom ? ` <a class="linkbtn" href="/api/sbom${token ? `?token=${encodeURIComponent(token)}` : ""}" download>Download SBOM</a>` : "");
+    const bar = s.running ? `<div class="bar" aria-hidden="true"><i></i></div>` : "";
+    return `<div class="card ${s.running ? "running" : ""} ${finished.has(k) ? "finished" : ""}" style="--tone:${tone}" data-card="${k}">
+      <div class="top-row"><div class="ic" aria-hidden="true">${icon}</div><div><h3>${name}</h3><p class="desc">${desc}</p></div></div>
+      ${site}
+      <div class="result ${cls}"><span class="dot"></span>${text}<span class="when">${s.running ? `<span data-elapsed="${esc(s.startedAt || "")}"></span>` : ago(s.at)}</span></div>${bar}
+      <div class="actions"><button class="btn ${k === "code" || k === "website" ? "primary" : ""} small" data-scan="${k}" ${disabled ? "disabled" : ""}>${s.running ? '<span class="spin"></span> Scanning' : s.at ? "Scan again" : "Run scan"}</button>${view}${note}</div>
+      ${passed}
+    </div>`;
+  }).join("");
+  finished.clear(); tick(); scanAllButton();
+  const u = $("siteUrl"); if (u) { const check = () => { let h = ""; try { h = new URL(/^https?:/.test(u.value) ? u.value : "https://" + u.value).hostname; } catch {} $("authRow").hidden = !h || (scans.allowedHosts || []).includes(h); }; u.oninput = () => { sessionSet("siteUrl", u.value); check(); }; check(); }
+}
+function sessionGet(k) { try { return sessionStorage.getItem(k); } catch { return null; } }
+function sessionSet(k, v) { try { sessionStorage.setItem(k, v); } catch {} }
+
+// ---- monitors -----------------------------------------------------------
+let status = {};
+function monitors(s) {
+  status = s || status;
+  const t = [
+    ["Payments", `${status.eventsRead ?? 0} agent events checked`],
+    ["Files (ransomware)", "Watching for mass encryption"],
+    ["Sign-ins & cloud", `${status.cloudEvents ?? 0} CloudTrail events${status.liveCloudTrail ? " · live" : ""}`],
+    ["Outbound traffic", `${status.egressEvents ?? 0} connections checked`],
+  ];
+  $("mons").innerHTML = t.map(([b, s]) => {
+    const changed = lastMon[b] !== undefined && lastMon[b] !== s; lastMon[b] = s;
+    const n = [...alerts.values()].filter((a) => !a.acknowledged && a.source === MON_AREA[b]).length;
+    return `<button class="mon ${changed ? "bump" : ""}" data-area="${MON_AREA[b]}" title="Show ${b.toLowerCase()} alerts"><span class="dot"></span><div><b>${b}</b><span>${s}</span></div><span class="go">${n ? n + " open ›" : "›"}</span></button>`;
+  }).join("");
+  tools(status.integrations);
+  $("paths").innerHTML = `<dt>Files watched</dt><dd>${esc(status.fileWatch)}</dd><dt>Agent logs</dt><dd>${(status.logFolders || []).map(esc).join("<br>")}</dd><dt>CloudTrail</dt><dd>${(status.cloudDirs || []).map(esc).join("<br>")}</dd><dt>Traffic logs</dt><dd>${(status.egressDirs || []).map(esc).join("<br>")}</dd>`;
+}
+
+// ---- connected tools ----------------------------------------------------
+function tools(i) {
+  if (!i) return;
+  const card = (name, state, st, how, extra = "") => `<div class="tool"><div class="row"><b>${name}</b><span class="pill ${state === "idle" ? "off" : state}">${state === "on" ? "On" : state === "warn" ? "Check" : state === "idle" ? "Waiting" : "Off"}</span></div><div class="st">${st}</div>${how ? `<div class="how">${how}</div>` : ""}${extra}</div>`;
+  const sg = i.semgrep, pg = i.promptGuard, fa = i.falco, aw = i.airwallex, sr = i.stratus, ch = i.channels;
+  const pct = sr.total ? Math.round((sr.covered / sr.total) * 100) : 0;
+  const html = [
+    card("Semgrep taint analysis", sg.on ? (sg.last && sg.last.error ? "warn" : "on") : "off",
+      sg.on ? (sg.last ? `${sg.last.findings} data flow${sg.last.findings === 1 ? "" : "s"} from untrusted text or model output to payments · ${ago(sg.last.at)}` : `Semgrep ${esc(sg.version)} ready; runs with the code scan`) : "Not installed",
+      sg.on ? "Rules: rules/semgrep/agent-money.yml" : "Install with <code>pip install semgrep</code>, then scan the code again."),
+    card("Prompt Guard 2", pg.on ? (pg.last && pg.last.error ? "warn" : "on") : "off",
+      pg.last ? (pg.last.error ? esc(pg.last.error) : `Caught ${pg.last.caught} of ${pg.last.attacks} attacks, ${pg.last.falsePositives} false alarm${pg.last.falsePositives === 1 ? "" : "s"}`) : pg.on ? "Runs the 20 probes with the code scan" : "Model-based injection classifier (Meta)",
+      pg.on ? "" : "Set <code>PROMPT_GUARD_URL</code> to a Prompt Guard 2 endpoint, or run <code>scripts/prompt-guard-server.py</code>."),
+    card("Airwallex payment webhooks", aw.on ? (aw.rejected ? "warn" : "on") : "off",
+      `${aw.logged} logged payment${aw.logged === 1 ? "" : "s"} · ${aw.received} webhook${aw.received === 1 ? "" : "s"} verified · ${aw.reconciled} reconciled${aw.waiting ? ` · ${aw.waiting} waiting for a log line` : ""}${aw.rejected ? ` · <b style="color:var(--medium)">${aw.rejected} rejected</b>` : ""}`,
+      aw.on ? "Endpoint: <code>POST /api/webhooks/airwallex</code>" : "Set <code>AIRWALLEX_WEBHOOK_SECRET</code> and point Airwallex transfer webhooks at <code>/api/webhooks/airwallex</code>."),
+    card("Falco runtime security", fa.received ? "on" : "idle",
+      fa.received ? `${fa.received} runtime event${fa.received === 1 ? "" : "s"} received` : "Listening; no events yet",
+      "Load <code>integrations/falco/agent-shield-rules.yaml</code> and send JSON alerts to <code>/api/ingest/falco</code>."),
+    card("Stratus Red Team coverage", sr.failing.length ? "warn" : "on",
+      `${sr.covered} of ${sr.total} AWS attack techniques detected in replay`,
+      "Live test in a sandbox account: <code>npm run stratus -- &lt;technique&gt;</code>",
+      `<div class="cov" title="${pct}%"><i style="width:${pct}%"></i></div><details><summary>${sr.gaps.length} known gap${sr.gaps.length === 1 ? "" : "s"}</summary><ul>${sr.gaps.map((g) => `<li>${esc(g)}</li>`).join("")}</ul></details>`),
+    (() => { const it = i.intel || { sources: {} }, src = it.sources || {};
+      const st = (k) => src[k] === "ok" ? "answered" : src[k] === "unreachable" ? "unreachable" : "not needed yet";
+      return card("Vulnerability intelligence", src.kev === "ok" ? (src.osv === "unreachable" || src.epss === "unreachable" ? "warn" : "on") : "idle",
+        src.kev === "ok" ? `CISA KEV ${esc(it.kevVersion || "")} (${(it.kevSize || 0).toLocaleString()} exploited CVEs) · ${src.osv === "ok" ? `${it.exploited || 0} of your advisories in it` : "matching needs OSV to map advisories to CVEs"}` : "Runs with the Software packages scan",
+        `OSV ${st("osv")} · EPSS ${st("epss")} · OSV-Scanner ${it.osvScanner ? esc(it.osvScanner) : "not installed"}`); })(),
+    (() => { const fw = i.frameworks || {}, l = fw["OWASP LLM 2025"] || { covered: [], missing: [] }, a = fw["OWASP Agentic 2026"] || { covered: [], missing: [] };
+      return card("Framework coverage", "on", `OWASP LLM Top 10: ${l.covered.length} of 10 · OWASP Agentic Top 10: ${a.covered.length} of 10`,
+        "Every alert is tagged with OWASP, MITRE ATT&CK and ATLAS references.",
+        `<details><summary>Not yet watched</summary><ul>${[...l.missing, ...a.missing].map((m) => `<li>${esc(m)} ${esc(REF_NAMES[m] || "")}</li>`).join("")}</ul></details>`); })(),
+    (() => { const o = i.owasp || {}, sh = o.secureHeaders, z = o.zap, dc = o.dependencyCheck, dt = o.dependencyTrack, dd = o.defectDojo;
+      const lines = [
+        `Secure Headers Project: ${sh ? `${sh.source === "built-in" ? "built-in list" : `list of ${esc((sh.updated || "").slice(0, 10))}`} (${sh.add} to send, ${sh.remove} to remove)` : "runs with the Website scan"}`,
+        `ZAP: ${z ? (z.error ? esc(z.error) : z.mode === "api" ? `daemon${z.alerts !== undefined ? `, ${z.alerts} alerts` : ""}` : `${z.imported} report${z.imported === 1 ? "" : "s"} imported, ${z.alerts} new alert${z.alerts === 1 ? "" : "s"}${z.confirmed ? `, ${z.confirmed} confirming Agent Shield's own` : ""}`) : "drop a JSON report in state/zap/, or set ZAP_API_URL"}`,
+        `Dependency-Check: ${dc ? (dc.error ? esc(dc.error) : `${dc.findings} finding${dc.findings === 1 ? "" : "s"} (${dc.mode})`) : o.dependencyCheckInstalled ? "installed; set DEPENDENCY_CHECK=1" : "drop a JSON report in state/dependency-check/"}`,
+        `CycloneDX SBOM → Dependency-Track: ${dt ? (dt.ok ? `uploaded ${ago(dt.at)}` : esc(dt.error)) : o.dependencyTrackOn ? "uploads with the Supply chain scan" : "set DTRACK_URL and DTRACK_API_KEY"}`,
+        `DefectDojo: ${dd ? (dd.ok ? `sent ${ago(dd.at)}` : esc(dd.error)) : o.defectDojoOn ? "ready to send" : "export below, or set DEFECTDOJO_URL and DEFECTDOJO_TOKEN"}`,
+      ];
+      const q = token ? `?token=${encodeURIComponent(token)}` : "";
+      return card("OWASP tools", sh || z || dc || dt || dd ? ((z && z.error) || (dt && !dt.ok) || (dd && !dd.ok) ? "warn" : "on") : "idle", "Secure Headers, ZAP, Dependency-Check, CycloneDX, Dependency-Track and DefectDojo",
+        lines.join("<br>"), `<div class="row" style="gap:12px;margin-top:4px"><a class="linkbtn" href="/api/export/defectdojo${q}" download>Export for DefectDojo</a>${o.defectDojoOn ? '<button class="linkbtn" id="ddPush">Send to DefectDojo</button>' : ""}</div>`); })(),
+    card("Alert channels", ch.enabled.length ? (ch.errors.length ? "warn" : "on") : "off",
+      ch.enabled.length ? `${esc(ch.enabled.join(", "))} · ${ch.sent} sent${ch.errors.length ? ` · last error: ${esc(ch.errors[0].channel)} ${esc(ch.errors[0].error)}` : ""}` : "Email only",
+      ch.enabled.length ? "" : "Set <code>SLACK_WEBHOOK_URL</code>, <code>PAGERDUTY_ROUTING_KEY</code> or <code>SNS_TOPIC_ARN</code>."),
+  ].join("");
+  if (html === tools.last) return; // unchanged: keep it as it is (an opened list stays open)
+  const wasOpen = [...document.querySelectorAll("#tools details")].map((d) => d.open);
+  tools.last = html; $("tools").innerHTML = html;
+  document.querySelectorAll("#tools details").forEach((d, i) => { if (wasOpen[i]) d.open = true; });
+}
+
+// ---- alerts -------------------------------------------------------------
+function toolbar() {
+  const list = [...alerts.values()].filter((a) => showDone || !a.acknowledged);
+  const counts = {}; for (const a of list) counts[a.source] = (counts[a.source] || 0) + 1;
+  const areas = Object.keys(AREA).filter((k) => counts[k]);
+  $("toolbar").innerHTML =
+    `<button class="seg ${area === "all" ? "on" : ""}" data-area="all">Everything <span class="c">${list.length}</span></button>` +
+    areas.map((k) => `<button class="seg ${area === k ? "on" : ""}" data-area="${k}">${AREA[k]} <span class="c">${counts[k]}</span></button>`).join("") +
+    `<button class="seg ${showDone ? "on" : ""}" id="doneBtn">${showDone ? "Hide handled" : "Show handled"}</button>` +
+    `<input class="search" id="search" type="search" placeholder="Search alerts  ( / )" value="${esc(q)}" aria-label="Search alerts">`;
+  $("search").oninput = (e) => { q = e.target.value; cur = -1; render(true); };
+  filterChips();
+}
+function render(keepToolbar) {
+  if (!keepToolbar && !(document.activeElement && document.activeElement.id === "search")) toolbar();
+  const list = visible();
+  if (keepToolbar) filterChips();
+  $("feed").innerHTML = list.length ? list.map((a) => `
+    <details class="al ${fresh.has(a.id) ? "new" : ""} ${a.acknowledged ? "done" : ""}" style="--c:var(--${a.severity})" data-id="${a.id}" ${open.has(a.id) ? "open" : ""}>
+      <summary><span class="tag">${PLAIN[a.severity]}</span><span class="ttl">${esc(a.title)}</span><span class="meta"><span>${AREA[a.source] || a.source}</span><span>${a.updatedAt ? "updated " + ago(a.updatedAt) : ago(a.at)}</span></span></summary>
+      <div class="body">
+        <div class="what">${esc(a.detail)}</div>
+        ${a.fix ? `<div class="todo"><b>What to do:</b> ${esc(a.fix)}</div>` : ""}
+        <div class="facts">${a.where ? `<span>Where: ${esc(a.where)}</span>` : ""}<span>Rule ${esc(a.rule)}</span>${a.evidence && a.evidence.zapRule ? `<span>OWASP ZAP rule ${esc(a.evidence.zapRule)}</span>` : ""}<span>${new Date(a.at).toLocaleString()}</span></div>
+        ${(a.refs || []).length ? `<div class="refs">${a.refs.map((r) => `<span class="ref" title="${esc(REF_NAMES[r] || r)}"><b>${esc(r)}</b> ${esc(REF_NAMES[r] || "")}</span>`).join("")}</div>` : ""}
+        <div class="row-actions">${a.acknowledged ? `<span class="desc">Handled by ${esc(a.acknowledged.by)} · ${ago(a.acknowledged.at)}</span>` : `<button class="btn small primary" data-ack="${a.id}">✓ Mark as handled</button>`}<button class="btn small ghost" data-copy="${a.id}">Copy details</button></div>
+      </div>
+    </details>`).join("")
+    : `<div class="empty"><b>${alerts.size ? "Nothing matches" : "No alerts"}</b>${alerts.size ? `<button class="linkbtn" data-clear="all">Clear filters</button>` : "Run a scan above, or try a practice drill."}</div>`;
+  const els = [...document.querySelectorAll("#feed .al")]; if (cur >= els.length) cur = els.length - 1; if (els[cur]) els[cur].classList.add("cur");
+  fresh.clear();
+  banner(); monitors();
+}
+
+function filterChips() {
+  const chips = [];
+  if (sev) chips.push(`<span class="fchip">Only “${PLAIN[sev]}”<button data-clear="sev" aria-label="Remove filter">✕</button></span>`);
+  if (scanF) chips.push(`<span class="fchip">From the ${esc(SCAN_NAME[scanF])} scan<button data-clear="scan" aria-label="Remove filter">✕</button></span>`);
+  const shown = visible().filter((a) => !a.acknowledged).length;
+  if (shown > 1) chips.push(`<button class="seg" id="ackAll">${confirmAll > Date.now() ? `Tap again to mark ${shown} as handled` : `Mark all ${shown} shown as handled`}</button>`);
+  $("filters").innerHTML = chips.join(""); $("filters").hidden = !chips.length;
+}
+function visible() {
+  const ql = q.toLowerCase(), ids = scanF ? new Set((scans[scanF] || {}).ids || []) : null;
+  return [...alerts.values()]
+    .filter((a) => (showDone || !a.acknowledged) && (area === "all" || a.source === area) && (!sev || a.severity === sev) && (!ids || ids.has(a.id)) && (!ql || (a.title + a.detail + (a.where || "")).toLowerCase().includes(ql)))
+    .sort((a, b) => (a.acknowledged ? 1 : 0) - (b.acknowledged ? 1 : 0) || SEV.indexOf(b.severity) - SEV.indexOf(a.severity) || (b.updatedAt || b.at).localeCompare(a.updatedAt || a.at));
+}
+function clearFilters() { area = "all"; sev = null; scanF = null; q = ""; cur = -1; render(); }
+function alertText(a) { return `[${PLAIN[a.severity]}] ${a.title}\n${a.detail}${a.fix ? "\nWhat to do: " + a.fix : ""}${a.where ? "\nWhere: " + a.where : ""}\nRule ${a.rule} · ${new Date(a.at).toLocaleString()}`; }
+async function copy(text) {
+  try { await navigator.clipboard.writeText(text); }
+  catch { const t = document.createElement("textarea"); t.value = text; document.body.append(t); t.select(); try { document.execCommand("copy"); } catch {} t.remove(); }
+  snack("Copied");
+}
+function snack(msg) { document.querySelectorAll(".snack").forEach((x) => x.remove()); const el = document.createElement("div"); el.className = "snack"; el.setAttribute("role", "status"); el.textContent = msg; document.body.append(el); setTimeout(() => el.remove(), 1800); }
+
+// ---- activity -------------------------------------------------------------
+function activity(text, tone = "var(--faint)") {
+  activityLog.unshift({ at: new Date().toISOString(), text, tone, fresh: true });
+  activityLog = activityLog.slice(0, 30);
+  const el = $("activity"); el.classList.remove("empty-list");
+  el.innerHTML = activityLog.map((x) => `<li class="${x.fresh ? "new" : ""}"><span class="dot" style="--c:${x.tone}"></span><span class="t">${x.text}</span><time datetime="${x.at}">${ago(x.at)}</time></li>`).join("");
+  activityLog.forEach((x) => (x.fresh = false));
+}
+function scansChanged(next) {
+  for (const k of Object.keys(SCAN_NAME)) {
+    const a = scans[k] || {}, b = next[k] || {};
+    if (!a.running && b.running) activity(`${SCAN_NAME[k]} scan started`);
+    if (a.running && !b.running) {
+      finished.add(k);
+      const bad = b.worst === "critical" || b.worst === "high";
+      activity(`${SCAN_NAME[k]} scan finished: <b>${b.error ? "could not finish" : b.issues ? b.issues + " issue" + (b.issues === 1 ? "" : "s") : "no issues"}</b>`, b.error ? "var(--high)" : bad ? "var(--critical)" : b.issues ? "var(--medium)" : "var(--ok)");
+      if (!scanAll) snack(`${SCAN_NAME[k]}: ${b.error ? "could not finish" : b.issues ? b.issues + " issue" + (b.issues === 1 ? "" : "s") + " found" : "no issues"}`);
+    }
+  }
+}
+function tick() {
+  document.querySelectorAll("[data-elapsed]").forEach((el) => { const t = Date.parse(el.dataset.elapsed); if (t) el.textContent = Math.max(0, Math.round((Date.now() - t) / 1000)) + " s"; });
+}
+setInterval(tick, 1000);
+function scanAllButton() {
+  const b = $("scanAll"); if (!b) return;
+  if (scanAll) {
+    const done = scanAll.filter((k) => !(scans[k] || {}).running).length;
+    if (done === scanAll.length) { const n = scanAll.reduce((t, k) => t + ((scans[k] || {}).issues || 0), 0); activity(`All scans finished: <b>${n} issue${n === 1 ? "" : "s"}</b> in total`, n ? "var(--medium)" : "var(--ok)"); snack(`All scans finished · ${n} issue${n === 1 ? "" : "s"}`); scanAll = null; }
+    else { b.disabled = true; b.innerHTML = `<span class="spin"></span> Scanning ${done + 1} of ${scanAll.length}…`; return; }
+  }
+  b.disabled = Object.values(scans).some((x) => x && x.running); b.textContent = "Scan everything";
+}
+
+// ---- technical details --------------------------------------------------
+function probe(sc) {
+  const p = sc && sc.probes; if (!p) return;
+  $("target").textContent = `${sc.target} · ${sc.files} files`;
+  $("probe").innerHTML = `<div style="display:flex;gap:18px;margin-bottom:8px"><div><b style="font:600 22px var(--mono)">${Math.round(p.detectionRate * 100)}%</b><div>of ${p.attacks} attacks flagged</div></div><div><b style="font:600 22px var(--mono);color:var(--ok)">${Math.round(p.hardened.detectionRate * 100)}%</b><div>with text normalised</div></div><div><b style="font:600 22px var(--mono)">${p.falsePositives}</b><div>false alarms</div></div></div>` +
+    Object.entries(p.byFamily).map(([f, v]) => `<div class="fam"><span>${esc(f)}</span><span class="track"><i style="width:${(v.caught / v.total) * 100}%;background:${v.caught === v.total ? "var(--ok)" : v.caught ? "var(--medium)" : "var(--critical)"}"></i></span><span style="font-family:var(--mono)">${v.caught}/${v.total}</span></div>`).join("");
+}
+function redteamCard(r) {
+  if (!r) return; const last = r.last;
+  $("redteam").innerHTML = (last ? `<div style="margin-bottom:6px"><b style="color:var(--ok)">${last.passed} held</b> · <b style="color:${last.failed ? "var(--critical)" : "inherit"}">${last.failed} obeyed the attacker</b> · <span style="font-family:var(--mono);font-size:12px">${esc(last.provider)} · ${ago(last.at)}</span></div>` + last.cases.map((c) => `<div class="rt" title="${esc(c.why)}"><span>${c.ok ? "✓" : "✗"} ${esc(c.d)}</span><span class="desc" style="font-size:11px">${esc(c.f)}</span></div>`).join("") : "No red-team run yet.") +
+    (r.garak || []).map((g) => `<div class="mail">garak · ${esc(g.file)} · ${g.failed} of ${g.probes} probes failed</div>`).join("") +
+    `<div class="mail">Drop a garak <code>.report.jsonl</code> into <code>state/garak/</code> to import it.</div>`;
+}
+function email(e) {
+  if (!e) return;
+  $("emailDesc").innerHTML = `Urgent and same-day alerts go to <b>${esc(e.to)}</b>${e.mode === "smtp" ? "." : " (saved in <code>outbox/</code> until a mail server is set)."}`;
+  $("emailList").innerHTML = (e.recent || []).slice(0, 3).map((m) => `<div class="mail">✉ ${esc(m.subject)} · ${ago(m.at)}</div>`).join("") || `<div class="mail">No emails sent yet.</div>`;
+}
+
+// ---- notifications ------------------------------------------------------
+function beep() {
+  if (!audioOK) return;
+  try { const ctx = new AudioContext(), o = ctx.createOscillator(), g = ctx.createGain(); o.type = "square"; o.frequency.value = 880; g.gain.value = .04; o.connect(g); g.connect(ctx.destination); o.start(); o.frequency.setValueAtTime(660, ctx.currentTime + .15); o.stop(ctx.currentTime + .3); } catch {}
+}
+function toast(a) {
+  const el = document.createElement("div");
+  el.className = "toast"; el.style.setProperty("--c", `var(--${a.severity})`);
+  el.innerHTML = `<b>${PLAIN[a.severity]} · ${esc(AREA[a.source] || a.source)}</b>${esc(a.title)}`;
+  el.onclick = () => openAlert(a.id);
+  $("toasts").prepend(el);
+  while ($("toasts").children.length > 3) $("toasts").lastChild.remove();
+  setTimeout(() => el.remove(), 7000);
+  if (a.severity === "critical") { $("flash").classList.remove("go"); void $("flash").offsetWidth; $("flash").classList.add("go"); beep(); }
+  try { if ("Notification" in window && Notification.permission === "granted") new Notification(`${PLAIN[a.severity]}: ${a.title}`, { body: (a.fix || a.detail).slice(0, 180), tag: a.id }); } catch {}
+}
+function openAlert(id) {
+  area = "all"; showDone = true; q = ""; open.add(id); render();
+  const el = document.querySelector(`[data-id="${id}"]`); if (el) { el.open = true; el.scrollIntoView({ behavior: "smooth", block: "center" }); }
+}
+
+// ---- data ---------------------------------------------------------------
+async function load() {
+  const s = await api("/api/state");
+  alerts = new Map((s.alerts || []).map((a) => [a.id, a]));
+  REF_NAMES = s.refNames || {};
+  scans = s.scans || {}; $("target").textContent = s.target || "—";
+  monitors(s.status); probe(s.scan); email(s.email); redteamCard(s.redteam); scanCards(); render();
+}
+function connect() {
+  const es = new EventSource("/api/stream" + (token ? "?token=" + encodeURIComponent(token) : ""));
+  es.addEventListener("hello", (e) => { $("live").classList.add("on"); $("liveText").textContent = "Live"; monitors(JSON.parse(e.data)); });
+  es.addEventListener("alert", (e) => { const a = JSON.parse(e.data); alerts.set(a.id, a); fresh.add(a.id); render(); activity(`New: <a href="#" data-open="${a.id}">${esc(a.title)}</a>`, `var(--${a.severity})`); if (SEV.indexOf(a.severity) >= 3) toast(a); });
+  es.addEventListener("update", (e) => { const a = JSON.parse(e.data); alerts.set(a.id, a); render(); });
+  es.addEventListener("ack", (e) => { const a = JSON.parse(e.data); alerts.set(a.id, a); render(); activity(`Handled: ${esc(a.title)}`, "var(--ok)"); });
+  es.addEventListener("activity", (e) => monitors(JSON.parse(e.data)));
+  es.addEventListener("scan", (e) => probe(JSON.parse(e.data)));
+  es.addEventListener("scans", (e) => { const next = JSON.parse(e.data);
+    // A scan the page just started may not have reached the server yet: keep it shown as running.
+    for (const k of Object.keys(SCAN_NAME)) { const mine = scans[k] || {}, srv = next[k] || {}; const t = Date.parse(mine.startedAt || "");
+      if (mine.running && !srv.running && t && Date.now() - t < 180000 && !(srv.at && Date.parse(srv.at) >= t - 1000)) next[k] = { ...srv, running: true, startedAt: mine.startedAt }; } scansChanged(next); scans = next; scanCards(); render(true); });
+  es.addEventListener("redteam", (e) => redteamCard(JSON.parse(e.data)));
+  es.addEventListener("emailed", () => api("/api/state").then((s) => email(s.email)));
+  es.onerror = () => { $("live").classList.remove("on"); $("liveText").textContent = "Reconnecting…"; };
+}
+
+// ---- interactions -------------------------------------------------------
+document.addEventListener("click", async (e) => {
+  audioOK = true;
+  const o = e.target.closest("[data-open]"); if (o) { e.preventDefault(); openAlert(o.dataset.open); return; }
+  const t = e.target.closest("button"); if (!t) return;
+  if (t.dataset.ack) { t.disabled = true; await api("/api/ack", { method: "POST", body: JSON.stringify({ id: t.dataset.ack, by: "support" }) }); snack("Marked as handled"); }
+  else if (t.dataset.copy) { copy(alertText(alerts.get(t.dataset.copy))); }
+  else if (t.dataset.sev) { sev = sev === t.dataset.sev ? null : t.dataset.sev; area = "all"; cur = -1; render(); if (sev) $("alertsSection").scrollIntoView({ behavior: "smooth" }); }
+  else if (t.dataset.view) { scanF = t.dataset.view; area = "all"; sev = null; q = ""; cur = -1; render(); $("alertsSection").scrollIntoView({ behavior: "smooth" }); }
+  else if (t.dataset.clear) { if (t.dataset.clear === "sev") sev = null; else if (t.dataset.clear === "scan") scanF = null; else return clearFilters(); render(); }
+  else if (t.id === "ackAll") {
+    if (confirmAll < Date.now()) { confirmAll = Date.now() + 4000; filterChips(); setTimeout(filterChips, 4100); return; }
+    confirmAll = 0; const ids = visible().filter((a) => !a.acknowledged).map((a) => a.id);
+    for (const id of ids) await api("/api/ack", { method: "POST", body: JSON.stringify({ id, by: "support" }) });
+    snack(`${ids.length} alerts marked as handled`);
+  }
+  else if (t.id === "ddPush") {
+    t.disabled = true; const r = await fetch("/api/export/defectdojo", { method: "POST", headers: token ? { authorization: `Bearer ${token}` } : {} });
+    snack(r.ok ? "Sent to DefectDojo" : "DefectDojo: " + ((await r.json().catch(() => ({}))).error || r.status)); t.disabled = false;
+  }
+  else if (t.id === "scanAll") {
+    const kinds = ["code", "system", "deps", "supply", "secrets", "fuzz", "cloud", "website"].concat(scans.modelReady ? ["model"] : []);
+    const u = $("siteUrl"); const url = u ? u.value.trim() : "";
+    const needsAuth = $("authRow") && !$("authRow").hidden && !$("siteAuth").checked;
+    scanAll = needsAuth ? kinds.filter((k) => k !== "website") : kinds;
+    if (needsAuth) snack("Skipping the website: tick “I own this site” to include it");
+    for (const k of scanAll) { scans[k] = { ...(scans[k] || {}), running: true, startedAt: new Date().toISOString() }; }
+    scanCards();
+    for (const k of scanAll) api("/api/scan/" + k, { method: "POST", body: JSON.stringify(k === "website" ? { url, authorised: !!($("siteAuth") && $("siteAuth").checked) } : {}) });
+  }
+  else if (t.dataset.area) { area = t.dataset.area; sev = null; scanF = null; cur = -1; render(); if (t.classList.contains("mon")) $("alertsSection").scrollIntoView({ behavior: "smooth" }); }
+  else if (t.id === "doneBtn") { showDone = !showDone; render(); }
+  else if (t.dataset.scan) {
+    const k = t.dataset.scan, body = {};
+    if (k === "website") { body.url = $("siteUrl").value.trim(); body.authorised = $("siteAuth").checked; if (!$("authRow").hidden && !body.authorised) { $("authRow").style.color = "var(--critical)"; return; } }
+    scans[k] = { ...(scans[k] || {}), running: true, startedAt: new Date().toISOString() }; scanCards();
+    api("/api/scan/" + k, { method: "POST", body: JSON.stringify(body) });
+  }
+  else if (t.dataset.drill) {
+    const label = t.textContent; t.disabled = true; t.innerHTML = '<span class="spin"></span> Running'; setTimeout(() => { t.disabled = false; t.textContent = label; }, 4000);
+    activity(t.dataset.drill === "reset" ? "Drill files reset" : `Practice drill started: <b>${esc(label)}</b>`, t.dataset.drill === "reset" ? "var(--faint)" : "var(--high)");
+    api("/api/simulate/" + t.dataset.drill, { method: "POST" }); if (t.dataset.drill !== "reset") document.getElementById("alertsSection").scrollIntoView({ behavior: "smooth" }); }
+});
+document.addEventListener("toggle", (e) => { const d = e.target; if (d.classList && d.classList.contains("al")) { d.open ? open.add(d.dataset.id) : open.delete(d.dataset.id); } }, true);
+$("helpBtn").onclick = () => { const h = $("help"); h.hidden = !h.hidden; $("helpBtn").setAttribute("aria-expanded", String(!h.hidden)); };
+$("notifyBtn").onclick = async () => {
+  if (!("Notification" in window)) { snack("Desktop alerts are not supported in this browser"); return; }
+  const p = await Notification.requestPermission(); setNotify(p);
+};
+function setNotify(p) { $("notifyIc").textContent = p === "denied" ? "🔕" : "🔔"; $("notifyLbl").textContent = p === "granted" ? "Alerts on" : p === "denied" ? "Blocked" : "Desktop alerts"; if (p === "granted") snack("Desktop alerts on"); }
+try { if ("Notification" in window && Notification.permission === "granted") { $("notifyIc").textContent = "🔔"; $("notifyLbl").textContent = "Alerts on"; } } catch {}
+const applyTheme = (t) => { document.documentElement.dataset.theme = t; try { localStorage.setItem("shieldTheme", t); } catch {} };
+try { const t = localStorage.getItem("shieldTheme"); if (t) document.documentElement.dataset.theme = t; } catch {}
+$("themeBtn").onclick = () => applyTheme(document.documentElement.dataset.theme === "light" ? "dark" : "light");
+setInterval(() => { render(true); scanCards(); }, 30000);
+document.addEventListener("keydown", (e) => {
+  const typing = /INPUT|TEXTAREA|SELECT/.test(document.activeElement?.tagName || "");
+  if (e.key === "Escape") { if (typing) document.activeElement.blur(); else if (!$("help").hidden) $("helpBtn").click(); else clearFilters(); return; }
+  if (typing || e.metaKey || e.ctrlKey || e.altKey) return;
+  const els = [...document.querySelectorAll("#feed .al")];
+  const move = (i) => { if (!els.length) return; cur = Math.max(0, Math.min(els.length - 1, i)); els.forEach((x) => x.classList.remove("cur")); els[cur].classList.add("cur"); els[cur].scrollIntoView({ block: "nearest", behavior: "smooth" }); };
+  const a = els[cur] && alerts.get(els[cur].dataset.id);
+  if (e.key === "/") { e.preventDefault(); $("search").focus(); }
+  else if (e.key === "?") $("helpBtn").click();
+  else if (e.key === "j") move(cur + 1);
+  else if (e.key === "k") move(cur - 1);
+  else if ((e.key === "o" || (e.key === "Enter" && !/SUMMARY|BUTTON|A/.test(document.activeElement?.tagName || ""))) && els[cur]) { e.preventDefault(); els[cur].open = !els[cur].open; }
+  else if (e.key === "e" && a && !a.acknowledged) api("/api/ack", { method: "POST", body: JSON.stringify({ id: a.id, by: "support" }) }).then(() => snack("Marked as handled"));
+  else if (e.key === "c" && a) copy(alertText(a));
+});
+addEventListener("scroll", () => { $("totop").hidden = scrollY < 900; }, { passive: true });
+$("totop").onclick = () => scrollTo({ top: 0, behavior: "smooth" });
+load().then(connect);
+</script>
+</body>
+</html>

@@ -1,0 +1,79 @@
+# Agent Shield taint rules for AI agents that move money (Semgrep taint mode).
+# Sources are things an attacker can influence; sinks are calls that move money or
+# create payees. A finding means untrusted data can reach a sink without passing a
+# sanitizer (an approval or a lookup against accounts on file).
+rules:
+  - id: agent-model-output-to-payment
+    mode: taint
+    languages: [typescript, javascript]
+    severity: ERROR
+    message: >-
+      Data the model extracted from a document reaches a money-moving API call
+      ($PATH). A planted instruction could set this amount or payee. Make sure a
+      person approved this exact value, or that code recomputed it from records.
+    metadata: { agent-shield-severity: high, category: llm-to-payment }
+    pattern-sources:
+      - pattern: extract(...)
+      - pattern: complete(...)
+    pattern-sanitizers:
+      - pattern: requestApproval(...)
+      - pattern: approve(...)
+      - pattern: lookupBeneficiary(...)
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: $C.post($PATH, $BODY, ...)
+              - pattern: $C.call("POST", $PATH, $BODY, ...)
+          - metavariable-regex:
+              metavariable: $PATH
+              regex: ^["'`]/(transfers|payouts|refunds|pa/refunds|beneficiaries|connected_account_transfers)/create
+          - focus-metavariable: $BODY
+
+  - id: untrusted-text-to-payee
+    mode: taint
+    languages: [typescript, javascript]
+    severity: ERROR
+    message: >-
+      Text from an email or document reaches a payee or beneficiary field ($PATH).
+      Payment details must come from accounts on file, never from inbound text.
+    metadata: { agent-shield-severity: critical, category: untrusted-to-payee }
+    pattern-sources:
+      - patterns:
+          - pattern-either:
+              - pattern: $M.body
+              - pattern: $M.text
+              - pattern: $M.html
+              - pattern: $M.content
+          - metavariable-regex:
+              metavariable: $M
+              regex: (?i).*(email|mail|msg|message|reply|doc|document|note|ticket|inbound).*
+    pattern-sanitizers:
+      - pattern: lookupBeneficiary(...)
+      - pattern: screenUntrusted(...)
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: $C.post($PATH, $BODY, ...)
+              - pattern: $C.call("POST", $PATH, $BODY, ...)
+          - metavariable-regex:
+              metavariable: $PATH
+              regex: ^["'`]/(beneficiaries|transfers|payouts)/create
+          - focus-metavariable: $BODY
+
+  - id: secret-to-log
+    mode: taint
+    languages: [typescript, javascript]
+    severity: WARNING
+    message: A secret from the environment reaches a log or audit record. Logs are read by more people than keys should be.
+    metadata: { agent-shield-severity: high, category: secret-exposure }
+    options:
+      taint_assume_safe_functions: true   # a function's result is not the secret itself
+    pattern-sources:
+      - patterns:
+          - pattern: process.env.$K
+          - metavariable-regex:
+              metavariable: $K
+              regex: (?i)^(?!.*(arn|_id$|url|region|name|file|path)).*(key|secret|token|password).*
+    pattern-sinks:
+      - pattern: console.$LOG(...)
+      - pattern: audit(...)

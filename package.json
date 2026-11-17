@@ -1,0 +1,40 @@
+{
+  "name": "agent-shield",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Security monitoring for AI agents that move money: code and taint scanning, LLM injection probes and red-teaming, payment reconciliation, access-control audit, ransomware and cloud-intrusion detection, with a live alert dashboard.",
+  "type": "module",
+  "license": "MIT",
+  "scripts": {
+    "serve": "tsx src/server.ts",
+    "scan": "tsx src/cli.ts scan",
+    "probe": "tsx src/cli.ts probe",
+    "simulate:ransomware": "tsx scripts/simulate-ransomware.ts",
+    "simulate:finance": "tsx scripts/simulate-finance.ts",
+    "test": "node --import tsx --test test/*.test.ts",
+    "typecheck": "tsc --noEmit",
+    "redteam": "tsx src/cli.ts redteam",
+    "redteam:dry": "SHIELD_REDTEAM_MOCK=1 tsx src/cli.ts redteam",
+    "garak:endpoint": "tsx src/integrations/agent-endpoint.ts",
+    "garak:import": "tsx src/cli.ts garak",
+    "simulate:artex": "tsx scripts/simulate-artex.ts",
+    "stratus": "tsx scripts/stratus.ts",
+    "semgrep": "cd ${TARGET_DIR:-../airwallex} && SEMGREP_ENABLE_VERSION_CHECK=0 semgrep scan --config $INIT_CWD/rules/semgrep --metrics=off --exclude node_modules ."
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "@aws-sdk/client-cloudtrail": "^3.1169.0",
+    "@aws-sdk/client-sns": "^3.1169.0",
+    "fast-check": "^4.10.2",
+    "nodemailer": "^6.9.16"
+  },
+  "devDependencies": {
+    "@types/node": "^22.9.0",
+    "@types/nodemailer": "^6.4.17",
+    "promptfoo": "^0.125.1",
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3"
+  }
+}

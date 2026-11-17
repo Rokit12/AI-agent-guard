@@ -1,0 +1,58 @@
+# Agent Shield rules for Falco. Load after Falco's default rules (they define the
+# open_write, spawned_process and rename macros used below):
+#
+#   falco -r /etc/falco/falco_rules.yaml -r integrations/falco/agent-shield-rules.yaml
+#
+# and send alerts to Agent Shield (falco.yaml):
+#
+#   json_output: true
+#   http_output:
+#     enabled: true
+#     url: http://127.0.0.1:4600/api/ingest/falco      # add ?token=<SHIELD_TOKEN> when set
+#
+# Change agent_data_dirs to the folders the agent reads and writes.
+
+- list: agent_data_dirs
+  items: [/srv/agent-desk/runs, /srv/agent-desk/finance-exports, /srv/agent-desk/state]
+
+- macro: in_agent_data
+  condition: (fd.name pmatch (agent_data_dirs) or evt.arg.newpath pmatch (agent_data_dirs))
+
+- rule: Agent Shield ransomware extension rename
+  desc: A file in the agent's data folders was renamed to a known ransomware extension.
+  condition: >
+    evt.type in (rename, renameat, renameat2) and evt.dir = < and in_agent_data and
+    (evt.arg.newpath endswith .locked or evt.arg.newpath endswith .encrypted or evt.arg.newpath endswith .enc or
+     evt.arg.newpath endswith .crypt or evt.arg.newpath endswith .crypted or evt.arg.newpath endswith .lockbit or
+     evt.arg.newpath endswith .akira or evt.arg.newpath endswith .ransom)
+  output: File renamed to a ransomware extension (file=%evt.arg.newpath proc.name=%proc.name proc.pid=%proc.pid user.name=%user.name container.name=%container.name)
+  priority: CRITICAL
+  tags: [agent_shield, ransomware, mitre_impact, T1486]
+
+- rule: Agent Shield ransom note written
+  desc: A ransom note was created in or near the agent's data folders.
+  condition: >
+    open_write and evt.dir = < and
+    (fd.filename icontains "recover_files" or fd.filename icontains "how_to_decrypt" or
+     fd.filename icontains "readme_for_decrypt" or fd.filename icontains "restore_files" or fd.filename icontains "ransom")
+  output: Ransom note written (fd.name=%fd.name proc.name=%proc.name proc.pid=%proc.pid user.name=%user.name container.name=%container.name)
+  priority: CRITICAL
+  tags: [agent_shield, ransomware, mitre_impact, T1486]
+
+- rule: Agent Shield unexpected writer in agent data
+  desc: A process other than the agent's runtime wrote into the agent's data folders.
+  condition: open_write and evt.dir = < and fd.name pmatch (agent_data_dirs) and not proc.name in (node, tsx)
+  output: Unexpected process wrote agent data (fd.name=%fd.name proc.name=%proc.name proc.pid=%proc.pid proc.cmdline=%proc.cmdline user.name=%user.name container.name=%container.name)
+  priority: WARNING
+  tags: [agent_shield, filesystem]
+
+- rule: Agent Shield backup or snapshot deletion
+  desc: A command deleted cloud backups, snapshots or bucket contents, a common step before encryption.
+  condition: >
+    spawned_process and
+    (proc.cmdline contains "delete-snapshot" or proc.cmdline contains "delete-recovery-point" or
+     proc.cmdline contains "delete-backup-vault" or (proc.cmdline contains "s3 rm" and proc.cmdline contains "--recursive") or
+     proc.cmdline contains "shred " or proc.cmdline contains "wipefs")
+  output: Backup or snapshot deletion command (proc.cmdline=%proc.cmdline proc.name=%proc.name proc.pid=%proc.pid user.name=%user.name container.name=%container.name)
+  priority: CRITICAL
+  tags: [agent_shield, ransomware, mitre_impact, T1490]
