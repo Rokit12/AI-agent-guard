@@ -240,11 +240,20 @@ The dashboard receives alerts over Server-Sent Events as they happen. It shows a
 - **Dependencies: 10 known vulnerabilities (8 high).** These include a Zod memory-exhaustion advisory in Zod and the 6 x402/Metal packages that bundle it (one alert), and a body-parser denial of service.
 - **Prompt-injection guard: catches 8 of 16 attacks with no false alarms.** It misses obfuscated, base64-encoded and non-English instructions, and one polite payment redirection. Adding the normaliser in `llm-probes.ts` raises that to 15 of 16. Agent Desk's code never acts on document text, so these misses are gaps in warning, not in safety: the guard would stay quiet, but the agent still would not pay.
 
-## Limits
+## Limits, and how each is now covered
 
-This is a first line of detection, not a replacement for a security team:
-- **The code scanner uses patterns,** so it can miss logic that a person would catch.
-- **The probes test a guard function,** not a live model.
-- **The ransomware detector sees file activity in one folder,** not processes; pair it with endpoint protection.
-- **The finance monitor sees what the agent logs,** so an agent that does not log a payment is invisible to it.
+Agent Shield is a first line of detection, not a replacement for a security team. Each original limit now has a solution built in:
+
+| Limit | Solution built in | What it adds | Still needs |
+|---|---|---|---|
+| **The code scanner uses patterns,** so it can miss logic a person would catch. | **Semgrep taint analysis** (`rules/semgrep/agent-money.yml`) and **guard fuzzing** (`src/detectors/fuzz.ts`) | Semgrep follows data across a function: email text or model output into a payment's amount or payee, and secrets into logs. Fuzzing throws about 3,000 generated inputs at the guard. On Agent Desk, Semgrep found 1 real flow (approved by a person) and fuzzing found 44 of 88 rewritten attacks slip past. | GitHub CodeQL, for data flow across files |
+| **The probes test a guard function,** not a live model. | **promptfoo** and **garak** red-teaming, and **Llama Prompt Guard 2** (`src/integrations/`) | promptfoo sends 12 planted-instruction documents through the same prompt the agent uses, and fails a test if the model obeys. garak adds hundreds of probes. Prompt Guard 2 is a second, model-based screen run on the same probes. | A model API key (`AGENT_MODEL` plus the provider key); Prompt Guard 2 needs Meta's licence accepted on Hugging Face |
+| **The ransomware detector sees file activity in one folder,** not processes. | **Falco** rules and ingest (`integrations/falco/`, `POST /api/ingest/falco`), **mass-deletion detection in S3** (`ID-S3-MASS-DELETE`) and the **Object Lock check** (`ACC-NO-IMMUTABLE-BACKUP`) | Falco watches system calls, so each alert names the process, user and container doing the encryption, with a kill-and-isolate fix. CloudTrail catches ransomware that wipes S3. The Object Lock check makes sure backups cannot be encrypted too. | Falco running on the agent's Linux host (eBPF), and S3 data events on in the trail |
+| **The finance monitor sees what the agent logs,** so an unlogged payment is invisible. | **Airwallex transfer webhooks** with reconciliation (`src/detectors/reconcile.ts`, `POST /api/webhooks/airwallex`) | Every transfer Airwallex reports is matched against the agent's log by transfer id, request id, or amount and payee. A transfer the agent never logged, or one with a different amount or payee, is critical within seconds. Signatures are verified and replays refused. | `AIRWALLEX_WEBHOOK_SECRET`, and the endpoint registered in the Airwallex web app |
+
+Remaining gaps are listed on the dashboard:
+- 5 Stratus Red Team AWS techniques (lifecycle rules on the trail bucket, DNS log deletion, client-side S3 encryption, unusual model use, instance enumeration).
+- OWASP LLM04, LLM07, LLM08 and LLM09.
+- OWASP Agentic ASI06 and ASI07.
+
 # AI-agent-guard
