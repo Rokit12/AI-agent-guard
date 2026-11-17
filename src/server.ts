@@ -38,6 +38,8 @@ import { attachChannels, channelsFromEnv, enabledChannels } from "./notify/chann
 import { simulateStratus, simulateUnloggedTransfer } from "./simulate.ts";
 import { createHmac, randomBytes } from "node:crypto";
 import { scanSupplyChain, sbom } from "./detectors/supply-chain.ts";
+import { scanAgentic, MisinfoMonitor } from "./detectors/agentic.ts";
+import { loadSources } from "./detectors/code-scan.ts";
 import { scanSecretsHistory } from "./detectors/secrets-history.ts";
 import { fuzzGuard, fuzzFindings } from "./detectors/fuzz.ts";
 import { hardenGuard } from "./detectors/llm-probes.ts";
@@ -127,7 +129,7 @@ function status() {
 
 const dcInstalled = Boolean(dependencyCheckVersion());
 function frameworks() {
-  const rules = [...new Set(["ACC-APPROVER-FROM-INPUT","ACC-SELF-APPROVAL","ACC-IAM-ALL-ACTIONS","CODE-EVAL","CODE-MONEY-NO-APPROVAL","CODE-MONEY-NO-IDEMPOTENCY","CODE-SECRET","FIN-UNLOGGED-TRANSFER","FIN-WEBHOOK-REJECTED","FUZZ-GUARD-BYPASS","FUZZ-GUARD-REDOS","FUZZ-GUARD-CRASH","LLM-CARD-DATA","LLM-OUTPUT-AS-AMOUNT","LLM-UNFENCED-INPUT","LLM-PROBE-FALSE-POSITIVE","SEMGREP-AGENT-MODEL-OUTPUT-TO-PAYMENT","SUPPLY-SIGNATURE-INVALID","SYS-VULN-DEPENDENCY","ID-LOG-TAMPER","RANSOM-NOTE","WEB-NO-CSP", ...bus.list().map((a) => a.rule)])];
+  const rules = [...new Set(["ACC-APPROVER-FROM-INPUT","ACC-SELF-APPROVAL","ACC-IAM-ALL-ACTIONS","CODE-EVAL","CODE-MONEY-NO-APPROVAL","CODE-MONEY-NO-IDEMPOTENCY","CODE-SECRET","FIN-UNLOGGED-TRANSFER","FIN-WEBHOOK-REJECTED","FUZZ-GUARD-BYPASS","FUZZ-GUARD-REDOS","FUZZ-GUARD-CRASH","LLM-CARD-DATA","LLM-OUTPUT-AS-AMOUNT","LLM-UNFENCED-INPUT","LLM-PROBE-FALSE-POSITIVE","SEMGREP-AGENT-MODEL-OUTPUT-TO-PAYMENT","SUPPLY-SIGNATURE-INVALID","SYS-VULN-DEPENDENCY","ID-LOG-TAMPER","RANSOM-NOTE","WEB-NO-CSP","LLM-SYSPROMPT-SECRET","LLM-VECTOR-NO-FILTER","LLM-CONTEXT-POISONED","LLM-TRAINING-POISONED","LLM-MISINFO","LLM-UNVALIDATED-OUTPUT","AGENT-X402-NO-LIMIT","AGENT-MCP-NO-AUTH","AGENT-A2A-NO-AUTH","ID-LLMJACKING","ID-S3-SSEC-ENCRYPT", ...bus.list().map((a) => a.rule)])];
   const open = bus.list().filter((a) => !a.acknowledged);
   const byRef: Record<string, number> = {};
   for (const a of open) for (const r of (a as any).refs ?? []) byRef[r] = (byRef[r] ?? 0) + 1;
@@ -194,6 +196,8 @@ async function runKind(kind: Kind, opts: { url?: string; authorised?: boolean } 
     if (kind === "code") {
       await runScan(); fs = lastScan!.findings;
       const extra: string[] = [];
+      const ag = scanAgentic(target.dir, loadSources(target.dir), await loadGuard(target), (process.env.MEMORY_DIRS ?? "").split(",").filter(Boolean));
+      fs = [...fs, ...ag.findings];
       const sg = await runSemgrep(target.dir);
       integ.semgrep = sg.version; integ.semgrepLast = { at: new Date().toISOString(), findings: sg.findings.length, error: sg.error };
       fs = [...fs, ...sg.findings];
@@ -206,7 +210,7 @@ async function runKind(kind: Kind, opts: { url?: string; authorised?: boolean } 
           extra.push(`Prompt Guard 2: ${sum.caught}/${sum.attacks} attacks`);
         } catch (e) { integ.promptGuard = { at: new Date().toISOString(), caught: 0, attacks: 0, falsePositives: 0, missed: [], error: (e as Error).message }; extra.push("Prompt Guard 2 unreachable"); }
       }
-      Object.assign(st, { summary: `${lastScan!.files} source files checked · ${extra.join(" · ")}`, passed: [...passedChecks(lastScan!), ...(sg.version && !sg.findings.some((f) => f.severity !== "low") ? ["No untrusted text or model output reaches a payment unapproved (Semgrep taint)"] : [])] });
+      Object.assign(st, { summary: `${lastScan!.files} source files checked · ${extra.join(" · ")}`, passed: [...passedChecks(lastScan!), ...ag.passed, ...(sg.version && !sg.findings.some((f) => f.severity !== "low") ? ["No untrusted text or model output reaches a payment unapproved (Semgrep taint)"] : [])] });
     } else if (kind === "website") {
       const shp = await loadSecureHeaders(join(STATE, "intel"));
       owaspState.secureHeaders = { source: shp.source, updated: shp.updated, remove: shp.remove.length, add: shp.add.length };
@@ -300,7 +304,8 @@ let liveCloudTrail = false;
 pollCloudTrailLive(cloud.monitor, raise, () => activity.cloudEvents++).then((r) => { liveCloudTrail = Boolean(r); });
 const ledger = new PaymentLedger(Number(process.env.RECON_GRACE_MS ?? 60_000));
 ledger.indexFolders([target.runs, demoRuns]);
-tailRuns([target.runs, demoRuns], raise, (run) => { activity.eventsRead++; activity.runsSeen.add(run); }, false, (e, run) => ledger.add(e, run));
+const misinfo = new MisinfoMonitor();
+tailRuns([target.runs, demoRuns], raise, (run) => { activity.eventsRead++; activity.runsSeen.add(run); }, false, (e, run) => { ledger.add(e, run); raise(misinfo.ingest(e as { kind?: string; task?: string }, run)); });
 setInterval(() => raise(ledger.sweep()), 5_000);
 
 /** One Airwallex webhook: verify, then reconcile. Drills pass their own secret and skip the grace period. */

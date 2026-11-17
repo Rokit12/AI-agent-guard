@@ -485,7 +485,7 @@ function tools(i) {
     card("Stratus Red Team coverage", sr.failing.length ? "warn" : "on",
       `${sr.covered} of ${sr.total} AWS attack techniques detected in replay`,
       "Live test in a sandbox account: <code>npm run stratus -- &lt;technique&gt;</code>",
-      `<div class="cov" title="${pct}%"><i style="width:${pct}%"></i></div><details><summary>${sr.gaps.length} known gap${sr.gaps.length === 1 ? "" : "s"}</summary><ul>${sr.gaps.map((g) => `<li>${esc(g)}</li>`).join("")}</ul></details>`),
+      `<div class="cov" title="${pct}%"><i style="width:${pct}%"></i></div>${sr.gaps.length ? `<details><summary>${sr.gaps.length} known gap${sr.gaps.length === 1 ? "" : "s"}</summary><ul>${sr.gaps.map((g) => `<li>${esc(g)}</li>`).join("")}</ul></details>` : ""}`),
     (() => { const it = i.intel || { sources: {} }, src = it.sources || {};
       const st = (k) => src[k] === "ok" ? "answered" : src[k] === "unreachable" ? "unreachable" : "not needed yet";
       return card("Vulnerability intelligence", src.kev === "ok" ? (src.osv === "unreachable" || src.epss === "unreachable" ? "warn" : "on") : "idle",
@@ -494,7 +494,7 @@ function tools(i) {
     (() => { const fw = i.frameworks || {}, l = fw["OWASP LLM 2025"] || { covered: [], missing: [] }, a = fw["OWASP Agentic 2026"] || { covered: [], missing: [] };
       return card("Framework coverage", "on", `OWASP LLM Top 10: ${l.covered.length} of 10 · OWASP Agentic Top 10: ${a.covered.length} of 10`,
         "Every alert is tagged with OWASP, MITRE ATT&CK and ATLAS references.",
-        `<details><summary>Not yet watched</summary><ul>${[...l.missing, ...a.missing].map((m) => `<li>${esc(m)} ${esc(REF_NAMES[m] || "")}</li>`).join("")}</ul></details>`); })(),
+        ([...l.missing, ...a.missing].length ? `<details><summary>Not yet watched</summary><ul>${[...l.missing, ...a.missing].map((m) => `<li>${esc(m)} ${esc(REF_NAMES[m] || "")}</li>`).join("")}</ul></details>` : "")); })(),
     (() => { const o = i.owasp || {}, sh = o.secureHeaders, z = o.zap, dc = o.dependencyCheck, dt = o.dependencyTrack, dd = o.defectDojo;
       const lines = [
         `Secure Headers Project: ${sh ? `${sh.source === "built-in" ? "built-in list" : `list of ${esc((sh.updated || "").slice(0, 10))}`} (${sh.add} to send, ${sh.remove} to remove)` : "runs with the Website scan"}`,

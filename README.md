@@ -45,7 +45,7 @@ It has light and dark themes. On phones, the header collapses to icons, the filt
 | `npm run simulate:finance` | Write an attacked agent run log to `sandbox/runs` |
 | `npm run simulate:artex` | Write an ARTEX-style intrusion as CloudTrail and egress logs to `sandbox/cloud` |
 | `npm run stratus -- list` | Stratus Red Team coverage map |
-| `npm test` | Detector, integration, method and OWASP tests (45) |
+| `npm test` | Detector, integration, method, OWASP and gap tests (52) |
 
 Settings (environment variables):
 
@@ -166,7 +166,7 @@ Methods Google, CISA, OWASP and the open-source security community use now, each
 | **Secrets in git history** (`src/detectors/secrets-history.ts`) | gitleaks and TruffleHog approach | Every added line in every commit, with provider patterns (AWS, Airwallex, GitHub, Slack, Stripe, Google, wallet keys) plus an entropy check. It reports the commit and whether the secret is still present, and never shows the value. | 37 commits, no secrets |
 | **Risk-based prioritisation** (`src/integrations/vuln-intel.ts`) | CISA KEV, FIRST EPSS v4, Google OSV | Advisories in CISA's Known Exploited list become critical; EPSS of 10% or more raises one to at least high. | KEV catalog 2026.11.13 (1,781 CVEs) loaded; osv.dev is blocked in the test environment, so no advisory could be matched to a CVE |
 | **OSV-Scanner** (`src/integrations/osv-scanner.ts`) | Google | Runs `osv-scanner scan source -r` when installed and merges its findings | Parser tested; binary not installable in the test environment |
-| **Framework mapping** (`src/frameworks.ts`) | OWASP LLM Top 10 2025, OWASP Agentic Top 10 2026, OWASP Top 10:2025, MITRE ATT&CK and ATLAS | Every alert carries its references; the dashboard shows coverage and gaps | LLM Top 10: 6 of 10; Agentic Top 10: 8 of 10 (gaps listed) |
+| **Framework mapping** (`src/frameworks.ts`) | OWASP LLM Top 10 2025, OWASP Agentic Top 10 2026, OWASP Top 10:2025, MITRE ATT&CK and ATLAS | Every alert carries its references; the dashboard shows coverage | LLM Top 10: 10 of 10; Agentic Top 10: 10 of 10 |
 
 Not built in: AI vulnerability hunting such as Google's Big Sleep and CodeMender (no public API), and Google's Tsunami network scanner (heavy, and active scanning is out of scope).
 
@@ -207,7 +207,7 @@ Agent Shield drives or listens to six established tools. Each one closes a gap i
 | **Airwallex transfer webhooks** (`src/detectors/reconcile.ts`) | Checks Airwallex's record of money leaving against the agent's log. A transfer the agent never logged, or one with a different amount or payee, is critical. Signatures (HMAC-SHA256 of `x-timestamp` + body) are verified, and replays older than 5 minutes are refused. | `AIRWALLEX_WEBHOOK_SECRET`; point transfer webhooks at `POST /api/webhooks/airwallex` | Signed and forged requests locally |
 | **Llama Prompt Guard 2** (`src/integrations/prompt-guard.ts`) | A model-based injection classifier, run on the same 20 probes as the regex guard so the two can be compared | `PROMPT_GUARD_URL` (any Hugging Face text-classification endpoint) or `python scripts/prompt-guard-server.py` | Parser only; the model is gated and needs a download |
 | **Falco** (`integrations/falco/agent-shield-rules.yaml`) | Names the process, user and container behind ransomware renames, ransom notes, backup deletion and unexpected writers | Load the rules; send JSON alerts to `POST /api/ingest/falco` or into `logs/falco/` | Falco's JSON format via the drill and API; rules not loaded into a live Falco |
-| **Stratus Red Team** (`src/integrations/stratus.ts`) | Maps 27 AWS attack techniques to the rule that should fire. In replay, 22 are detected; 5 are known gaps listed on the dashboard. | `npm run stratus -- list`; `npm run stratus -- <technique>` in a sandbox account | Replay of all 27; live detonation needs AWS credentials |
+| **Stratus Red Team** (`src/integrations/stratus.ts`) | Maps 27 AWS attack techniques to the rule that should fire. All 27 are detected in replay. | `npm run stratus -- list`; `npm run stratus -- <technique>` in a sandbox account | Replay of all 27; live detonation needs AWS credentials |
 | **Slack, PagerDuty, Amazon SNS** (`src/notify/channels.ts`) | Alerts go beyond email; "Mark as handled" acknowledges the PagerDuty incident | `SLACK_WEBHOOK_URL`, `PAGERDUTY_ROUTING_KEY`, `SNS_TOPIC_ARN`, `NOTIFY_MIN` | Slack against a local stand-in; PagerDuty and SNS in unit tests |
 
 Stratus replay found and fixed four detection bugs:
@@ -251,9 +251,29 @@ Agent Shield is a first line of detection, not a replacement for a security team
 | **The ransomware detector sees file activity in one folder,** not processes. | **Falco** rules and ingest (`integrations/falco/`, `POST /api/ingest/falco`), **mass-deletion detection in S3** (`ID-S3-MASS-DELETE`) and the **Object Lock check** (`ACC-NO-IMMUTABLE-BACKUP`) | Falco watches system calls, so each alert names the process, user and container doing the encryption, with a kill-and-isolate fix. CloudTrail catches ransomware that wipes S3. The Object Lock check makes sure backups cannot be encrypted too. | Falco running on the agent's Linux host (eBPF), and S3 data events on in the trail |
 | **The finance monitor sees what the agent logs,** so an unlogged payment is invisible. | **Airwallex transfer webhooks** with reconciliation (`src/detectors/reconcile.ts`, `POST /api/webhooks/airwallex`) | Every transfer Airwallex reports is matched against the agent's log by transfer id, request id, or amount and payee. A transfer the agent never logged, or one with a different amount or payee, is critical within seconds. Signatures are verified and replays refused. | `AIRWALLEX_WEBHOOK_SECRET`, and the endpoint registered in the Airwallex web app |
 
-Remaining gaps are listed on the dashboard:
-- 5 Stratus Red Team AWS techniques (lifecycle rules on the trail bucket, DNS log deletion, client-side S3 encryption, unusual model use, instance enumeration).
-- OWASP LLM04, LLM07, LLM08 and LLM09.
-- OWASP Agentic ASI06 and ASI07.
+### Gaps closed
+
+The former gaps now have rules:
+
+| Gap | Rule | What it catches |
+|---|---|---|
+| Stratus: lifecycle rule on the trail bucket | `ID-LOG-LIFECYCLE` | An expiration of 7 days or less on a log bucket. Critical for buckets learned from CreateTrail or UpdateTrail, or set in `CLOUDTRAIL_BUCKETS` |
+| Stratus: DNS log deletion | `ID-LOG-TAMPER` | `DeleteResolverQueryLogConfig` and `DisassociateResolverQueryLogConfig` |
+| Stratus: S3 ransomware with client-side encryption | `ID-S3-SSEC-ENCRYPT` | Objects rewritten with customer-provided keys (SSE-C), the 2025 Codefinger technique |
+| Stratus: Bedrock model use | `ID-LLMJACKING` | Model calls or model-access probes from anyone except the agent's runtime (`MODEL_CALLERS`) |
+| Stratus: discovery from an instance | `ID-INSTANCE-RECON` | A server's credentials making 8 or more kinds of lookup in minutes (stolen from instance metadata) |
+| LLM07 System Prompt Leakage | `LLM-SYSPROMPT-*` | Secrets, internal addresses, account numbers or approval rules in system prompts |
+| LLM08 Vector and Embedding Weaknesses | `LLM-VECTOR-*` | Retrieval without a tenant filter; untrusted documents embedded unscreened |
+| LLM04 Data Poisoning, ASI06 Memory Poisoning | `LLM-CONTEXT-*`, `LLM-TRAINING-POISONED` | Planted instructions in prompt, knowledge, memory (`MEMORY_DIRS`) and training files; uncommitted changes to them |
+| LLM09 Misinformation | `LLM-UNVALIDATED-OUTPUT`, `LLM-MISINFO` | Model output accepted with no validator; runs where many model answers fail validation |
+| ASI07 Insecure Inter-Agent Communication | `AGENT-X402-NO-LIMIT`, `AGENT-MCP-*`, `AGENT-A2A-NO-AUTH` | x402 payments with no payee or price guard; MCP servers over HTTP, without credentials or unpinned; A2A agent cards without auth |
+
+On Agent Desk, these checks found one low-severity issue. Kit 12's clearing buyer calls `payFetch` without a guard, so the seller's offer sets the price and payee. The clearing deposit caps the total loss. Everything else passed:
+- both system prompts are clean
+- no vector store is in use
+- no memory or training files
+- every model extraction is validated
+
+Coverage on the dashboard: Stratus 27 of 27, OWASP LLM Top 10 10 of 10, OWASP Agentic Top 10 10 of 10.
 
 # AI-agent-guard

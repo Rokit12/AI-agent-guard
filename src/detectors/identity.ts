@@ -16,6 +16,10 @@
  *   ID-SNAPSHOT-SHARE    snapshots or buckets opened to other accounts or the public
  *   ID-SECRETS-BURST     many secrets read at once
  *   ID-S3-MASS-DELETE    one identity deleting S3 objects in bulk (cloud ransomware)
+ *   ID-LOG-LIFECYCLE     a lifecycle rule that quietly expires audit logs or data
+ *   ID-S3-SSEC-ENCRYPT   objects rewritten with a customer-provided key (SSE-C ransomware)
+ *   ID-LLMJACKING        an unexpected identity calling or probing AI models
+ *   ID-INSTANCE-RECON    a server's credentials used to map the account
  *   ID-NO-MFA-LOGIN      console sign-in with a password only
  *   NET-WEBHOOK-EXFIL    data sent to webhook/paste/tunnel services
  *   NET-UNAPPROVED-AI    calls to AI model APIs the company has not approved
@@ -44,6 +48,8 @@ export interface EgressRecord { at: string; host?: string; query_name?: string; 
 
 export interface IdentityConfig {
   trustedPrincipals: RegExp;     // deploy pipelines and the runtime role, expected to change IAM
+  modelCallers: RegExp;          // identities expected to call Bedrock models (the agent's runtime)
+  trailBuckets: string[];        // buckets that hold audit logs (learned from CreateTrail/UpdateTrail too)
   approvedAiHosts: string[];     // model APIs the company has approved
   sprayAccounts: number;         // distinct accounts failing within the spray window
   sprayWindowMs: number;
@@ -59,6 +65,8 @@ export interface IdentityConfig {
 
 export const DEFAULT_IDENTITY: IdentityConfig = {
   trustedPrincipals: /cdk-|CloudFormation|cloudformation\.amazonaws\.com|AgentDesk-.*Deploy|github-actions/i,
+  modelCallers: new RegExp(process.env.MODEL_CALLERS ?? "agentcore|AgentDesk|agent-desk|bedrock\\.amazonaws\\.com", "i"),
+  trailBuckets: (process.env.CLOUDTRAIL_BUCKETS ?? "").split(",").filter(Boolean),
   approvedAiHosts: ["api.anthropic.com", "bedrock-runtime.", "bedrock-agentcore."],
   sprayAccounts: 10, sprayWindowMs: 60 * 60_000,
   probeDenied: 15, probeWindowMs: 120_000,
@@ -89,7 +97,12 @@ const PERSIST: Record<string, string> = {
   UpdateFunctionCode: "replaced a Lambda function's code", AddPermission: "let another principal invoke a function", PutSecretValue: "changed a stored secret",
 };
 const ADMIN_POLICY = /AdministratorAccess|IAMFullAccess|PowerUserAccess|"Action"\s*:\s*"\*"|\*:\*/;
-const TAMPER = /^(StopLogging|DeleteTrail|UpdateTrail|PutEventSelectors|DeleteFlowLogs|DeleteDetector|DisassociateFromMasterAccount|DeleteLogGroup|DeleteLogStream|PutRetentionPolicy|DisableSecurityHub|DeleteConfigurationRecorder|StopConfigurationRecorder)$/;
+const TAMPER = /^(StopLogging|DeleteTrail|UpdateTrail|PutEventSelectors|DeleteFlowLogs|DeleteDetector|DisassociateFromMasterAccount|DeleteLogGroup|DeleteLogStream|PutRetentionPolicy|DisableSecurityHub|DeleteConfigurationRecorder|StopConfigurationRecorder|DeleteResolverQueryLogConfig|DisassociateResolverQueryLogConfig)$/;
+const LIFECYCLE = /^PutBucketLifecycle(Configuration)?$/;
+const SSEC = /customer-algorithm|SSECustomerAlgorithm/i;
+const MODEL_CALL = /^(InvokeModel|InvokeModelWithResponseStream|Converse|ConverseStream|InvokeAgent|InvokeInlineAgent)$/;
+const MODEL_RECON = /^(ListFoundationModels|GetFoundationModelAvailability|ListFoundationModelAgreementOffers|PutFoundationModelEntitlement|PutUseCaseForModelAccess|CreateFoundationModelAgreement)$/;
+const INSTANCE_CREDS = /assumed-role\/[^/]+\/i-[0-9a-f]{8,17}$/;
 const SHARE = /^(ModifySnapshotAttribute|ModifyDBSnapshotAttribute|ModifyDBClusterSnapshotAttribute|PutBucketPolicy|PutBucketAcl|DeletePublicAccessBlock|DeleteBucketPublicAccessBlock|PutBucketPublicAccessBlock|ModifyImageAttribute)$/;
 
 /** Secrets a call returned: Secrets Manager (single or batch) and SSM SecureString parameters read with decryption. */
@@ -129,6 +142,9 @@ export class IdentityMonitor {
   private roles = new Map<string, Win<string>[]>();
   private secrets = new Map<string, Win<string>[]>();
   private s3del = new Map<string, Win<string>[]>();
+  private ssec = new Map<string, Win<string>[]>();
+  private recon = new Map<string, Win<string>[]>();
+  private trailBucketSet = new Set<string>();
   private egressBytes = new Map<string, number>();
   private fired = new Map<string, number>(); // rule:identity -> last time raised
   private peak = new Map<string, number>();  // incident key -> largest count seen
@@ -257,6 +273,51 @@ export class IdentityMonitor {
         title: `${shortWho(id)} deleted ${this.top(`s3del:${id}`, s.length)} S3 objects within ${this.cfg.probeWindowMs / 1000} s`,
         detail: `Buckets: ${[...new Set(s.map((x) => x.v))].slice(0, 4).join(", ")}. Bulk deletion from one identity is how cloud ransomware wipes data after copying or re-encrypting it.`,
         fix: "Revoke the identity's sessions now, then restore from versioning or the Object Lock / AWS Backup copy. Turn on MFA delete and Object Lock for these buckets." });
+    }
+
+    // --- audit log buckets: remember them, and catch log destruction by lifecycle rule
+    if (/^(CreateTrail|UpdateTrail)$/.test(r.eventName) && r.requestParameters?.s3BucketName) this.trailBucketSet.add(String(r.requestParameters.s3BucketName));
+    if (LIFECYCLE.test(r.eventName) && !r.errorCode) {
+      const bucket = String(r.requestParameters?.bucketName ?? "?");
+      const days = [...JSON.stringify(r.requestParameters ?? {}).matchAll(/"(?:Days|days)"\s*:\s*"?(\d+)/g)].map((m) => Number(m[1]));
+      const shortest = days.length ? Math.min(...days) : undefined;
+      const isTrail = this.trailBucketSet.has(bucket) || this.cfg.trailBuckets.includes(bucket) || /cloudtrail|trail|audit/i.test(bucket);
+      if (shortest !== undefined && shortest <= 7 && (isTrail || !trusted))
+        out.push({ source: "identity", rule: "ID-LOG-LIFECYCLE", severity: isTrail ? "critical" : "high", where, key: `lifecycle:${bucket}`,
+          title: `${shortWho(id)} set ${bucket} to delete objects after ${shortest} day${shortest === 1 ? "" : "s"}`,
+          detail: `${isTrail ? "This bucket holds audit logs. " : ""}A short expiration rule quietly destroys the evidence (or the data) without a single delete call showing up later.`,
+          fix: "Remove the lifecycle rule, turn on S3 Object Lock for log buckets, and deny s3:PutLifecycleConfiguration on them except to the deployment role." });
+    }
+
+    // --- cloud ransomware with customer-provided keys (SSE-C): objects rewritten with a key only the attacker holds
+    if (/^(PutObject|CopyObject|UploadPart|CreateMultipartUpload)$/.test(r.eventName) && !r.errorCode && SSEC.test(JSON.stringify({ q: r.requestParameters, a: r.additionalEventData }))) {
+      const s = this.ssec.get(id) ?? []; this.ssec.set(id, s);
+      s.push({ at: now, v: String(r.requestParameters?.bucketName ?? "?") });
+      prune(s, now, this.cfg.probeWindowMs);
+      out.push({ source: "ransomware", rule: "ID-S3-SSEC-ENCRYPT", severity: s.length >= 20 ? "critical" : "high", where, key: `ssec:${id}:${day}`,
+        title: `${shortWho(id)} re-encrypted ${this.top(`ssec:${id}`, s.length)} S3 object${s.length === 1 ? "" : "s"} with a customer-provided key`,
+        detail: `Buckets: ${[...new Set(s.map((x) => x.v))].slice(0, 4).join(", ")}. With SSE-C, only whoever holds the key can read the objects again: the technique used in the 2025 Codefinger ransomware campaign.`,
+        fix: "Revoke the identity's keys and sessions now, block SSE-C with a bucket policy (deny s3:PutObject when s3:x-amz-server-side-encryption-customer-algorithm is present), and restore from versions or backups." });
+    }
+
+    // --- LLMjacking: someone else using the company's model access
+    if ((MODEL_CALL.test(r.eventName) || MODEL_RECON.test(r.eventName)) && !this.cfg.modelCallers.test(id) && !trusted)
+      out.push({ source: "identity", rule: "ID-LLMJACKING", severity: MODEL_CALL.test(r.eventName) ? "high" : "medium", where, key: `llmjack:${id}:${day}`,
+        title: `${shortWho(id)} ${MODEL_CALL.test(r.eventName) ? "is calling AI models" : "is probing which AI models are enabled"} (${r.eventName})`,
+        detail: `Only the agent's runtime is expected to use Bedrock. Stolen cloud keys are now resold to run AI models on the victim's bill ("LLMjacking"), often after checking which models are enabled.`,
+        fix: "If this identity should not use AI models, revoke its keys, deny bedrock:Invoke* outside the agent role, and set a Bedrock budget alarm." });
+
+    // --- instance credentials used for discovery: keys stolen from the metadata service
+    if (INSTANCE_CREDS.test(id) && /^(List|Describe|Get|Lookup|Search|BatchGet)/.test(r.eventName)) {
+      const s = this.recon.get(id) ?? []; this.recon.set(id, s);
+      s.push({ at: now, v: `${r.eventSource}:${r.eventName}` });
+      prune(s, now, this.cfg.enumWindowMs);
+      const kinds = new Set(s.map((x) => x.v));
+      if (kinds.size >= 8)
+        out.push({ source: "identity", rule: "ID-INSTANCE-RECON", severity: "high", where, key: `irecon:${id}:${day}`,
+          title: `A server's credentials are mapping the account (${this.top(`irecon:${id}`, kinds.size)} kinds of lookup)`,
+          detail: `${shortWho(id)} ran ${[...kinds].slice(0, 6).map((k) => k.split(":")[1]).join(", ")}… within ${this.cfg.enumWindowMs / 60_000} min. Servers rarely explore the account; an attacker who took the instance's credentials from its metadata service does.`,
+          fix: "Require IMDSv2 on every instance, check the instance for compromise, and scope its role to only what the application calls." });
     }
 
     // --- console sign-in without MFA

@@ -7,6 +7,7 @@
  * so an alert can be filed under the control it belongs to, and coverage can be shown.
  */
 export const NAMES: Record<string, string> = {
+  T1496: "Resource Hijacking", "T1552.005": "Cloud Instance Metadata API",
   LLM04: "Data and Model Poisoning", LLM07: "System Prompt Leakage", LLM08: "Vector and Embedding Weaknesses", LLM09: "Misinformation", ASI06: "Memory & Context Poisoning", ASI07: "Insecure Inter-Agent Communication",
   LLM01: "Prompt Injection", LLM02: "Sensitive Information Disclosure", LLM03: "Supply Chain", LLM05: "Improper Output Handling", LLM06: "Excessive Agency", LLM10: "Unbounded Consumption",
   ASI01: "Agent Goal Hijack", ASI02: "Tool Misuse and Exploitation", ASI03: "Identity and Privilege Abuse", ASI04: "Agentic Supply Chain Vulnerabilities", ASI05: "Unexpected Code Execution", ASI08: "Cascading Failures", ASI09: "Human-Agent Trust Exploitation", ASI10: "Rogue Agents",
@@ -23,7 +24,7 @@ const MAP: [RegExp, string[]][] = [
   [/^FUZZ-GUARD-REDOS/, ["LLM10", "T1499"]],
   [/^FUZZ-GUARD-CRASH/, ["LLM01", "A10:2025"]],
   [/^(SEMGREP-AGENT-MODEL-OUTPUT-TO-PAYMENT|LLM-OUTPUT-AS-AMOUNT)/, ["LLM05", "LLM06", "ASI02"]],
-  [/^LLM-OUTPUT-REJECTED/, ["LLM05"]],
+  [/^LLM-OUTPUT-REJECTED/, ["LLM05", "LLM09"]],
   [/^LLM-CARD-DATA/, ["LLM02", "A04:2025"]],
   [/^(SEMGREP-UNTRUSTED-TEXT-TO-PAYEE|FIN-TAINTED-PAYEE)/, ["LLM01", "ASI01", "ASI02"]],
   [/^(CODE-MONEY-NO-APPROVAL|FIN-UNAPPROVED|FIN-OVER-APPROVED|FIN-NEW-PAYEE)/, ["LLM06", "ASI02", "ASI09"]],
@@ -52,6 +53,16 @@ const MAP: [RegExp, string[]][] = [
   [/^ID-SNAPSHOT-SHARE/, ["T1537"]],
   [/^NET-WEBHOOK-EXFIL/, ["T1567"]],
   [/^NET-UNAPPROVED-AI/, ["T1567", "LLM02"]],
+  [/^LLM-SYSPROMPT/, ["LLM07", "LLM02"]],
+  [/^LLM-VECTOR/, ["LLM08", "ASI06"]],
+  [/^(LLM-CONTEXT|LLM-TRAINING)/, ["LLM04", "ASI06"]],
+  [/^(LLM-MISINFO|LLM-UNVALIDATED-OUTPUT)/, ["LLM09"]],
+  [/^AGENT-X402/, ["ASI07", "ASI02"]],
+  [/^AGENT-(MCP|A2A)/, ["ASI07", "ASI04"]],
+  [/^ID-LOG-LIFECYCLE/, ["T1562.008", "T1485", "A09:2025"]],
+  [/^ID-S3-SSEC-ENCRYPT/, ["T1486"]],
+  [/^ID-LLMJACKING/, ["T1496", "LLM10", "T1078.004"]],
+  [/^ID-INSTANCE-RECON/, ["T1580", "T1552.005"]],
   [/^(WEB-|OWASP-SHP|OWASP-XSS-PROTECTION|ZAP-)/, ["A02:2025"]],
   [/^(SYS-OPEN-PORT|SYS-ROOT|SYS-SSH|SYS-WORLD-WRITABLE|SYS-NODE-EOL|FALCO-RUNTIME)/, ["A02:2025"]],
 ];
