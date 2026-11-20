@@ -4,6 +4,12 @@ Security monitoring for AI agents that move money. Agent Shield scans an agent's
 
 The first target is [Airwallex Agent Desk](https://github.com/Rokit12/airwallex), the 15-agent finance desk built for the Agentic Banking Hackathon. Agent Shield is a separate project: it reads Agent Desk's code and audit logs, and changes nothing in it.
 
+## Demo video
+
+[![Agent Shield 3-minute demo](docs/demo/poster.jpg)](docs/demo/Agent-Shield-Pitch.mp4)
+
+**[Watch the 3-minute demo (MP4, 1080p)](docs/demo/Agent-Shield-Pitch.mp4)**: a pitch walkthrough of the dashboard scanning Airwallex Agent Desk, then catching an unlogged transfer, ransomware and an AI-driven cloud intrusion in a sandbox.
+
 ## Run it
 
 ```sh
