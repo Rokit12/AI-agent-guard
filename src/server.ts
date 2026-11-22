@@ -5,7 +5,8 @@
  *   GET  /api/state           alerts, counts, scan summary, monitor status
  *   GET  /api/stream          live events (Server-Sent Events): alert, ack, emailed, activity
  *   POST /api/scan            re-scan the target code
- *   POST /api/scan/:kind      code | website | system | deps | cloud | model   ({"url", "authorised"} for website)
+ *   POST /api/scan/:kind      code | website | system | deps | supply | secrets | fuzz | malware | leak | outdated | cloud | model   ({"url", "authorised"} for website)
+ *   POST /api/autoscan        {"enabled": true|false} turn automatic follow-up scans on or off
  *   POST /api/ack             {"id"} acknowledge an alert
  *   POST /api/simulate/:what  ransomware | finance | artex | reset  (sandbox drills)
  *
@@ -15,7 +16,7 @@
  */
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { readFileSync, mkdirSync } from "node:fs";
-import { join } from "node:path";
+import { join, basename } from "node:path";
 import { timingSafeEqual } from "node:crypto";
 import { AlertBus, fingerprint, type Alert, type Finding } from "./alerts.ts";
 import { attachEmail, emailConfigFromEnv } from "./notify/email.ts";
@@ -35,7 +36,7 @@ import { promptGuardReady, runPromptGuard, promptGuardSummary, promptGuardFindin
 import { FalcoFeed, type FalcoAlert } from "./integrations/falco.ts";
 import { replayCoverage } from "./integrations/stratus.ts";
 import { attachChannels, channelsFromEnv, enabledChannels } from "./notify/channels.ts";
-import { simulateStratus, simulateUnloggedTransfer } from "./simulate.ts";
+import { simulateStratus, simulateUnloggedTransfer, simulateMalware, simulateLeak } from "./simulate.ts";
 import { createHmac, randomBytes } from "node:crypto";
 import { scanSupplyChain, sbom } from "./detectors/supply-chain.ts";
 import { scanAgentic, MisinfoMonitor } from "./detectors/agentic.ts";
@@ -48,6 +49,10 @@ import { runOsvScanner, osvScannerVersion } from "./integrations/osv-scanner.ts"
 import { coverage, refLabel, NAMES as REF_NAMES } from "./frameworks.ts";
 import { loadSecureHeaders, zapFindings, zapBaseline, runDependencyCheck, dependencyCheckFindings, dependencyCheckVersion, uploadToDependencyTrack, toDefectDojo, pushToDefectDojo, type SecureHeaderLists } from "./integrations/owasp.ts";
 import { writeFileSync as writeFile, readFileSync as readFile, mkdirSync as mkdirp } from "node:fs";
+import { scanMalware, scanFile, loadHashList } from "./detectors/malware.ts";
+import { scanLeaks, leaksInText } from "./detectors/leak.ts";
+import { scanOutdated } from "./detectors/outdated.ts";
+import { AutoScanner, CATEGORY_LABEL, type AutoKind, type Round } from "./autoscan.ts";
 
 const PORT = Number(process.env.PORT ?? 4600);
 const HOST = process.env.HOST ?? "127.0.0.1";
@@ -99,6 +104,32 @@ setInterval(() => push("activity", status()), 2000);
 
 const raise = (fs: Finding[]) => bus.raiseAll(fs);
 
+// ---- automatic scans: an intrusion, malware, leak or old-vulnerability alert starts follow-up scans ----
+let raisingScan: string | null = null; // which scan is raising findings right now (null: a live monitor)
+const auto = new AutoScanner({ enabled: process.env.AUTO_SCAN !== "0", cooldownMs: Number(process.env.AUTO_SCAN_COOLDOWN_MIN ?? 10) * 60_000, minGapMs: Number(process.env.AUTO_SCAN_MIN_GAP_S ?? 20) * 1000, graceMs: Number(process.env.AUTO_SCAN_GRACE_S ?? 30) * 1000 });
+let autoTimer: NodeJS.Timeout | null = null;
+let autoQueue: Promise<void> = Promise.resolve();
+function startRound(r: Round | null) {
+  if (!r) return;
+  push("autoscan", r); push("auto_state", auto.state());
+  const why = r.reason === "schedule" ? "Scheduled re-check" : `${CATEGORY_LABEL[r.triggers[0].category]}: ${r.triggers[0].title}${r.triggers.length > 1 ? ` (+${r.triggers.length - 1} more)` : ""}`;
+  // one scan at a time, so an incident never floods the machine
+  for (const k of r.kinds) autoQueue = autoQueue.then(() => runKind(k as Kind, { trigger: why })).catch(() => {});
+}
+const considerAlert = (a: Alert) => {
+  if (!auto.consider(a, Date.now(), raisingScan ?? "live").length || autoTimer) return;
+  autoTimer = setTimeout(flushAuto, Number(process.env.AUTO_SCAN_BATCH_MS ?? 4000));
+};
+function flushAuto() {
+  autoTimer = null;
+  startRound(auto.flush((k) => scans[k as Kind]?.running));
+  const d = auto.retryDelay();
+  if (d !== null && !autoTimer) autoTimer = setTimeout(flushAuto, d);
+}
+bus.on("alert", considerAlert);
+bus.on("update", considerAlert);
+setInterval(() => startRound(auto.due((k) => scans[k as Kind]?.running)), Number(process.env.AUTO_SCAN_SCHEDULE_CHECK_MS ?? 5 * 60_000));
+
 async function runScan() {
   lastScan = await scanTarget(target);
   raise(lastScan.findings);
@@ -129,7 +160,7 @@ function status() {
 
 const dcInstalled = Boolean(dependencyCheckVersion());
 function frameworks() {
-  const rules = [...new Set(["ACC-APPROVER-FROM-INPUT","ACC-SELF-APPROVAL","ACC-IAM-ALL-ACTIONS","CODE-EVAL","CODE-MONEY-NO-APPROVAL","CODE-MONEY-NO-IDEMPOTENCY","CODE-SECRET","FIN-UNLOGGED-TRANSFER","FIN-WEBHOOK-REJECTED","FUZZ-GUARD-BYPASS","FUZZ-GUARD-REDOS","FUZZ-GUARD-CRASH","LLM-CARD-DATA","LLM-OUTPUT-AS-AMOUNT","LLM-UNFENCED-INPUT","LLM-PROBE-FALSE-POSITIVE","SEMGREP-AGENT-MODEL-OUTPUT-TO-PAYMENT","SUPPLY-SIGNATURE-INVALID","SYS-VULN-DEPENDENCY","ID-LOG-TAMPER","RANSOM-NOTE","WEB-NO-CSP","LLM-SYSPROMPT-SECRET","LLM-VECTOR-NO-FILTER","LLM-CONTEXT-POISONED","LLM-TRAINING-POISONED","LLM-MISINFO","LLM-UNVALIDATED-OUTPUT","AGENT-X402-NO-LIMIT","AGENT-MCP-NO-AUTH","AGENT-A2A-NO-AUTH","ID-LLMJACKING","ID-S3-SSEC-ENCRYPT", ...bus.list().map((a) => a.rule)])];
+  const rules = [...new Set(["MAL-REVERSE-SHELL","MAL-WEBSHELL","MAL-MINER","MAL-OBFUSCATED-EXEC","MAL-DROPPER","MAL-CREDENTIAL-STEALER","MAL-HIDDEN-EXECUTABLE","MAL-KNOWN-HASH","LEAK-CARD-NUMBER","LEAK-SECRET-IN-LOGS","LEAK-BULK-PII","LEAK-SENSITIVE-FILE-TRACKED","OLD-DEPRECATED","OLD-MAJOR-BEHIND","OLD-UNMAINTAINED","OLD-RUNTIME","OLD-BASE-IMAGE","OLD-CLOUD-RUNTIME","OLD-OS-EOL","ACC-APPROVER-FROM-INPUT","ACC-SELF-APPROVAL","ACC-IAM-ALL-ACTIONS","CODE-EVAL","CODE-MONEY-NO-APPROVAL","CODE-MONEY-NO-IDEMPOTENCY","CODE-SECRET","FIN-UNLOGGED-TRANSFER","FIN-WEBHOOK-REJECTED","FUZZ-GUARD-BYPASS","FUZZ-GUARD-REDOS","FUZZ-GUARD-CRASH","LLM-CARD-DATA","LLM-OUTPUT-AS-AMOUNT","LLM-UNFENCED-INPUT","LLM-PROBE-FALSE-POSITIVE","SEMGREP-AGENT-MODEL-OUTPUT-TO-PAYMENT","SUPPLY-SIGNATURE-INVALID","SYS-VULN-DEPENDENCY","ID-LOG-TAMPER","RANSOM-NOTE","WEB-NO-CSP","LLM-SYSPROMPT-SECRET","LLM-VECTOR-NO-FILTER","LLM-CONTEXT-POISONED","LLM-TRAINING-POISONED","LLM-MISINFO","LLM-UNVALIDATED-OUTPUT","AGENT-X402-NO-LIMIT","AGENT-MCP-NO-AUTH","AGENT-A2A-NO-AUTH","ID-LLMJACKING","ID-S3-SSEC-ENCRYPT", ...bus.list().map((a) => a.rule)])];
   const open = bus.list().filter((a) => !a.acknowledged);
   const byRef: Record<string, number> = {};
   for (const a of open) for (const r of (a as any).refs ?? []) byRef[r] = (byRef[r] ?? 0) + 1;
@@ -181,16 +212,17 @@ setInterval(() => {
 }, 2000);
 
 // ---- one-click scans -----------------------------------------------------------
-type Kind = "code" | "website" | "system" | "deps" | "supply" | "secrets" | "fuzz" | "cloud" | "model";
-interface ScanState { running: boolean; startedAt?: string; ids?: string[]; at?: string; summary?: string; issues?: number; worst?: string; error?: string; passed?: string[]; detail?: Record<string, unknown> }
-const scans: Record<Kind, ScanState> = { code: { running: false }, website: { running: false }, system: { running: false }, deps: { running: false }, supply: { running: false }, secrets: { running: false }, fuzz: { running: false }, cloud: { running: false }, model: { running: false } };
+type Kind = "code" | "website" | "system" | "deps" | "supply" | "secrets" | "fuzz" | "malware" | "leak" | "outdated" | "cloud" | "model";
+interface ScanState { running: boolean; trigger?: string; startedAt?: string; ids?: string[]; at?: string; summary?: string; issues?: number; worst?: string; error?: string; passed?: string[]; detail?: Record<string, unknown> }
+const scans: Record<Kind, ScanState> = { code: { running: false }, website: { running: false }, system: { running: false }, deps: { running: false }, supply: { running: false }, secrets: { running: false }, fuzz: { running: false }, malware: { running: false }, leak: { running: false }, outdated: { running: false }, cloud: { running: false }, model: { running: false } };
 const DEFAULT_WEBSITE = process.env.WEBSITE_URL ?? "https://d1zoxhgak5pvwd.cloudfront.net/";
 const worstOf = (fs: Finding[]) => ["critical", "high", "medium", "low", "info"].find((s) => fs.some((f) => f.severity === s)) ?? "none";
 
-async function runKind(kind: Kind, opts: { url?: string; authorised?: boolean } = {}) {
+async function runKind(kind: Kind, opts: { url?: string; authorised?: boolean; trigger?: string } = {}) {
   const st = scans[kind];
   if (st.running) return;
-  st.running = true; st.startedAt = new Date().toISOString(); st.error = undefined; push("scans", scanStates());
+  auto.ran(kind);
+  st.running = true; st.trigger = opts.trigger; st.startedAt = new Date().toISOString(); st.error = undefined; push("scans", scanStates());
   try {
     let fs: Finding[] = [];
     if (kind === "code") {
@@ -251,6 +283,16 @@ async function runKind(kind: Kind, opts: { url?: string; authorised?: boolean } 
       fs = fuzzFindings(r, `${target.guard}`);
       Object.assign(st, { summary: `${r.runs.toLocaleString()} inputs · ${r.crashes.length} crashes · ${r.slow.length} slow · ${r.bypasses.length} of ${r.mutated} rewrites bypass`,
         passed: [...(r.crashes.length ? [] : ["Never crashed"]), ...(r.slow.length ? [] : ["No input took over 100 ms (no ReDoS)"]), `Built-in normaliser: ${h.bypasses.length} of ${h.mutated} rewrites bypass`], detail: { seed: r.seed } });
+    } else if (kind === "malware") {
+      const r = await scanMalware({ codeDirs: [target.dir], dataDirs: [watchDir, ...cloudDataDirs()], packageDirs: [process.cwd()], hashList: join(STATE, "intel", "malware-hashes.txt"), selfDir: process.cwd() });
+      fs = r.findings; Object.assign(st, { summary: r.summary, passed: r.passed, detail: { engines: r.engines } });
+    } else if (kind === "leak") {
+      const r = await scanLeaks([{ dir: target.runs, kind: "runs" }, { dir: demoRuns, kind: "runs" }, { dir: join(process.cwd(), "logs"), kind: "logs" }, { dir: join(process.cwd(), "outbox"), kind: "emails" }, { dir: watchDir, kind: "exports" },
+        ...(process.env.LEAK_DIRS ?? "").split(",").filter(Boolean).map((d) => ({ dir: d, kind: "logs" as const }))], [target.dir, process.cwd()]);
+      fs = r.findings; Object.assign(st, { summary: r.summary, passed: r.passed });
+    } else if (kind === "outdated") {
+      const r = await scanOutdated([target.dir, process.cwd()], join(STATE, "intel"));
+      fs = r.findings; Object.assign(st, { summary: r.summary, passed: r.passed });
     } else if (kind === "cloud") {
       const r = huntFolders(cloudtrailDirs, egressDirs);
       fs = r.findings; Object.assign(st, { summary: `${r.events} cloud events and ${r.egress} traffic records hunted${liveCloudTrail ? " · live CloudTrail on" : ""}`, passed: [] });
@@ -259,12 +301,13 @@ async function runKind(kind: Kind, opts: { url?: string; authorised?: boolean } 
       await runRedteam(); fs = redteam ? redteamFindings(redteam) : [];
       Object.assign(st, { summary: redteam ? `${redteam.passed} held · ${redteam.failed} obeyed the attacker` : "no result", passed: [] });
     }
-    raise(fs);
+    raisingScan = kind; try { raise(fs); } finally { raisingScan = null; }
     Object.assign(st, { ids: [...new Set(fs.filter((f) => f.severity !== "info").map(fingerprint))], at: new Date().toISOString(), issues: new Set(fs.filter((f) => f.severity !== "info").map((f) => f.key ?? f.rule + f.where + f.title)).size, worst: worstOf(fs) });
   } catch (e) {
     st.error = (e as Error).message; st.at = new Date().toISOString();
   } finally { st.running = false; push("scans", scanStates()); }
 }
+const cloudDataDirs = () => (process.env.MALWARE_DIRS ?? "").split(",").filter(Boolean);
 const scanStates = () => ({ ...scans, websiteDefault: DEFAULT_WEBSITE, allowedHosts: allowedHosts(), modelReady: redteamReady() });
 
 let intel: Record<string, unknown> | null = null;
@@ -296,7 +339,36 @@ setInterval(() => {
 }, 3000);
 
 // ---- monitors ----------------------------------------------------------------
-watchFolder(watchDir, raise);
+let resettingUntil = 0; // the drill reset rewrites the sample files: not an attack
+watchFolder(watchDir, (fs) => { if (Date.now() > resettingUntil) raise(fs); });
+// On-access malware check: every file written to the watched folder is checked the moment it lands.
+let malHashes = loadHashList(join(STATE, "intel", "malware-hashes.txt"));
+setInterval(() => { malHashes = loadHashList(join(STATE, "intel", "malware-hashes.txt")); }, 3_600_000);
+const onAccessStats = { checked: 0, detections: 0 };
+// Polling, not fs.watch: a recursive watcher loses folders that are deleted and recreated (a restore, a reset).
+const accessSeen = new Map<string, string>();
+let accessPrimed = false;
+function onAccessSweep() {
+  const stack = [watchDir]; let n = 0;
+  const now = new Set<string>();
+  while (stack.length && n < 5000) {
+    const d = stack.pop()!; let names: string[] = []; try { names = readdirSync(d); } catch { continue; }
+    for (const name of names) {
+      const p = join(d, name); let st; try { st = statSync(p); } catch { continue; }
+      if (st.isDirectory()) { stack.push(p); continue; }
+      n++; now.add(p);
+      const sig = `${st.size}:${st.mtimeMs}`;
+      if (accessSeen.get(p) === sig) continue;
+      accessSeen.set(p, sig);
+      if (!accessPrimed) continue; // files present at start are covered by the full malware scan
+      const r = scanFile(p, `${basename(watchDir)}/${p.slice(watchDir.length + 1)}`, "data", malHashes);
+      if (r.scanned) { onAccessStats.checked++; if (r.findings.length) { onAccessStats.detections++; raise(r.findings.map((f) => ({ ...f, evidence: { ...f.evidence, caught: "on access, as the file was written" } }))); } }
+    }
+  }
+  for (const p of accessSeen.keys()) if (!now.has(p)) accessSeen.delete(p);
+  accessPrimed = true;
+}
+onAccessSweep(); setInterval(onAccessSweep, 2000);
 const cloudtrailDirs = [process.env.CLOUDTRAIL_DIR ?? join(process.cwd(), "logs", "cloudtrail"), join(SANDBOX, "cloud", "cloudtrail")];
 const egressDirs = [process.env.EGRESS_DIR ?? join(process.cwd(), "logs", "egress"), join(SANDBOX, "cloud", "egress")];
 const cloud = feedCloud({ cloudtrail: cloudtrailDirs, egress: egressDirs, onFindings: raise, onEvent: (k) => { if (k === "cloudtrail") activity.cloudEvents++; else activity.egressEvents++; } });
@@ -305,7 +377,7 @@ pollCloudTrailLive(cloud.monitor, raise, () => activity.cloudEvents++).then((r) 
 const ledger = new PaymentLedger(Number(process.env.RECON_GRACE_MS ?? 60_000));
 ledger.indexFolders([target.runs, demoRuns]);
 const misinfo = new MisinfoMonitor();
-tailRuns([target.runs, demoRuns], raise, (run) => { activity.eventsRead++; activity.runsSeen.add(run); }, false, (e, run) => { ledger.add(e, run); raise(misinfo.ingest(e as { kind?: string; task?: string }, run)); });
+tailRuns([target.runs, demoRuns], raise, (run) => { activity.eventsRead++; activity.runsSeen.add(run); }, false, (e, run) => { ledger.add(e, run); raise(misinfo.ingest(e as { kind?: string; task?: string }, run)); raise(leaksInText(JSON.stringify(e), `runs/${run}.jsonl`, "runs").map((f) => ({ ...f, evidence: { ...f.evidence, caught: "live, as the agent wrote its log" } }))); });
 setInterval(() => raise(ledger.sweep()), 5_000);
 
 /** One Airwallex webhook: verify, then reconcile. Drills pass their own secret and skip the grace period. */
@@ -393,13 +465,19 @@ createServer(async (req, res) => {
       return;
     }
     if (req.method === "GET" && url.pathname === "/api/state")
-      return json(res, 200, { scans: scanStates(), redteam: redteamSummary(), target: target.name, alerts: bus.list(), refNames: REF_NAMES, counts: bus.counts(), scan: scanSummary(), status: status(), email: { to: emailCfg.to, minSeverity: emailCfg.minSeverity, mode: emailCfg.smtpUrl ? "smtp" : "outbox", recent: activity.emails } });
+      return json(res, 200, { autoScan: auto.state(), scans: scanStates(), redteam: redteamSummary(), target: target.name, alerts: bus.list(), refNames: REF_NAMES, counts: bus.counts(), scan: scanSummary(), status: status(), email: { to: emailCfg.to, minSeverity: emailCfg.minSeverity, mode: emailCfg.smtpUrl ? "smtp" : "outbox", recent: activity.emails } });
     if (req.method === "POST" && url.pathname === "/api/scan") return json(res, 200, await runScan());
-    const kind = /^\/api\/scan\/(code|website|system|deps|supply|secrets|fuzz|cloud|model)$/.exec(url.pathname);
+    const kind = /^\/api\/scan\/(code|website|system|deps|supply|secrets|fuzz|malware|leak|outdated|cloud|model)$/.exec(url.pathname);
     if (req.method === "POST" && kind) {
       const b = await body(req);
       runKind(kind[1] as Kind, { url: b.url ? String(b.url) : undefined, authorised: b.authorised === true });
       return json(res, 202, { started: kind[1] });
+    }
+    if (req.method === "POST" && url.pathname === "/api/autoscan") {
+      const b = await body(req);
+      if (typeof b.enabled === "boolean") auto.enabled = b.enabled;
+      push("auto_state", auto.state());
+      return json(res, 200, auto.state());
     }
     if (req.method === "POST" && url.pathname === "/api/redteam") {
       if (!redteamReady()) return json(res, 409, { error: "Set ANTHROPIC_API_KEY (and AGENT_MODEL) before starting the server, or SHIELD_REDTEAM_MOCK=1 for a dry run." });
@@ -435,8 +513,10 @@ createServer(async (req, res) => {
       const a = bus.acknowledge(String(b.id ?? ""), String(b.by ?? "support"));
       return a ? json(res, 200, a) : json(res, 404, { error: "no such alert" });
     }
-    const sim = /^\/api\/simulate\/(ransomware|finance|artex|stratus|recon|reset)$/.exec(url.pathname);
+    const sim = /^\/api\/simulate\/(ransomware|finance|artex|stratus|recon|malware|leak|reset)$/.exec(url.pathname);
     if (req.method === "POST" && sim) {
+      if (sim[1] === "malware") { simulateMalware().catch((e) => push("error", { error: String(e) })); return json(res, 202, { started: "malware drill: three harmless samples dropped in sandbox/watched" }); }
+      if (sim[1] === "leak") { const f = simulateLeak(); return json(res, 202, { started: `data-leak drill: ${basename(f)}` }); }
       if (sim[1] === "ransomware") { simulateRansomware().catch((e) => push("error", { error: String(e) })); return json(res, 202, { started: "ransomware drill in sandbox/watched" }); }
       if (sim[1] === "artex") { simulateArtex().catch((e) => push("error", { error: String(e) })); return json(res, 202, { started: "ARTEX-style intrusion drill in sandbox/cloud" }); }
       if (sim[1] === "stratus") return json(res, 202, { started: `Stratus Red Team replay: ${simulateStratus()} CloudTrail records in sandbox/cloud` });
@@ -447,7 +527,7 @@ createServer(async (req, res) => {
         return json(res, 202, { started: "payment reconciliation drill: 1 matching, 1 altered and 1 unlogged transfer" });
       }
       if (sim[1] === "finance") { simulateFinance().catch((e) => push("error", { error: String(e) })); return json(res, 202, { started: "finance drill in sandbox/runs" }); }
-      resetSandbox(); return json(res, 200, { reset: true });
+      resettingUntil = Date.now() + 15_000; resetSandbox(); return json(res, 200, { reset: true });
     }
     return json(res, 404, { error: "not found" });
   } catch (err) {

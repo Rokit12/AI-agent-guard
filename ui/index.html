@@ -179,6 +179,24 @@ code{font:12.5px var(--mono);background:var(--panel2);padding:1px 5px;border-rad
 .al .body{animation:open .2s ease-out}
 @keyframes open{from{opacity:0;transform:translateY(-3px)}}
 .feed-act{padding:8px 0 0;font-size:13.5px}
+.autonote{display:inline-block;margin-top:4px;font-size:12px;color:var(--high);font-weight:600}
+.autoscan{margin-top:12px;background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:14px 16px;display:grid;gap:12px}
+.as-head{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:14px;align-items:start}
+.as-head h3{margin:0 0 4px;font-size:15px}
+.switch{width:52px;height:30px;border-radius:999px;border:1px solid var(--line);background:var(--faint);position:relative;cursor:pointer;flex:none;padding:0;transition:background .2s}
+.switch span{position:absolute;top:3px;left:3px;width:22px;height:22px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.3);transition:transform .2s}
+.switch[aria-checked="true"]{background:var(--ok)}.switch[aria-checked="true"] span{transform:translateX(22px)}
+.switch:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
+.as-map{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
+.as-map div{border:1px solid var(--line);border-radius:10px;padding:9px 10px;font-size:12.5px;color:var(--muted);min-width:0}
+.as-map b{display:block;color:var(--ink);font-size:13px;margin-bottom:2px}
+.as-rounds{list-style:none;margin:0;padding:0;display:grid;gap:6px}
+.as-rounds li{font-size:13px;display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:10px;align-items:baseline;overflow-wrap:anywhere}
+.as-rounds li.none{grid-template-columns:1fr;color:var(--muted)}
+.as-rounds .k{font-weight:600;color:var(--high);white-space:nowrap}.as-rounds .k.s{color:var(--muted)}
+.as-rounds time{color:var(--faint);font-size:12px;white-space:nowrap}
+.as-rounds .skip{color:var(--faint);font-size:12px}
+@media (max-width:760px){.as-map{grid-template-columns:1fr 1fr}.as-rounds li{grid-template-columns:minmax(0,1fr) auto}.as-rounds .k{grid-column:1/-1}}
 .activity{list-style:none;margin:12px 0 0;padding:0;background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);max-height:228px;overflow:auto}
 .activity li{display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:center;padding:9px 14px;border-bottom:1px solid var(--line);font-size:13.5px}
 .activity li:last-child{border-bottom:0}
@@ -296,6 +314,14 @@ code{font:12.5px var(--mono);background:var(--panel2);padding:1px 5px;border-rad
   <section>
     <div class="h"><h2>Always watching</h2><p>These run on their own and alert you the moment something happens.</p></div>
     <div class="mons" id="mons"></div>
+    <div class="autoscan" id="autoscan">
+      <div class="as-head">
+        <div><h3>Automatic scans</h3><p class="desc">When an alert shows an intrusion, malware, a data leak or old vulnerable software, the scans that check what else is affected start on their own. Old packages, malware and leaks are also re-checked on a schedule.</p></div>
+        <button class="switch" id="autoToggle" role="switch" aria-checked="true" aria-label="Automatic scans"><span></span></button>
+      </div>
+      <div class="as-map" id="asMap"></div>
+      <ul class="as-rounds" id="asRounds"><li class="none">No automatic scans yet. Try the Malware or AI-driven intrusion drill below.</li></ul>
+    </div>
     <ul class="activity empty-list" id="activity" aria-live="polite"><li>Activity will appear here as it happens.</li></ul>
   </section>
 
@@ -319,6 +345,8 @@ code{font:12.5px var(--mono);background:var(--panel2);padding:1px 5px;border-rad
       <div class="drills">
         <button class="btn warn small" data-drill="artex">AI-driven intrusion</button>
         <button class="btn warn small" data-drill="ransomware">Ransomware</button>
+        <button class="btn warn small" data-drill="malware">Malware</button>
+        <button class="btn warn small" data-drill="leak">Data leak</button>
         <button class="btn warn small" data-drill="finance">Payment fraud</button>
         <button class="btn warn small" data-drill="recon">Unlogged payment</button>
         <button class="btn warn small" data-drill="stratus">Stratus cloud attacks</button>
@@ -350,7 +378,7 @@ const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const SEV = ["info", "low", "medium", "high", "critical"];
 const PLAIN = { critical: "Act now", high: "Today", medium: "This week", low: "When convenient", info: "For information" };
-const AREA = { identity: "Sign-ins & cloud", network: "Outbound traffic", ransomware: "Ransomware", finance: "Payments", access: "Access control", llm: "AI model", code: "Code", web: "Website", system: "System" };
+const AREA = { identity: "Sign-ins & cloud", network: "Outbound traffic", ransomware: "Ransomware", malware: "Malware", leak: "Data leaks", finance: "Payments", access: "Access control", llm: "AI model", code: "Code", web: "Website", system: "System" };
 const ICON = {
   ok: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 4 5v6c0 5 3.4 9 8 10 4.6-1 8-5 8-10V5l-8-3Z"/><path d="m9 12 2 2 4-4"/></svg>',
   warn: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/><path d="M12 9v4M12 17h.01"/></svg>',
@@ -363,6 +391,9 @@ const SCANS = [
   { k: "deps", name: "Software packages", icon: "📦", desc: "Known security holes in the agent's libraries (npm audit, OSV), ranked by real-world exploitation (CISA KEV, EPSS)." },
   { k: "supply", name: "Supply chain", icon: "🔏", desc: "Verifies npm registry signatures, lockfile hashes and SLSA build provenance; flags install scripts; builds an SBOM." },
   { k: "secrets", name: "Secrets in history", icon: "🔑", desc: "Searches every commit, not just today's files, for keys and tokens that were ever pushed." },
+  { k: "malware", name: "Malware", icon: "🦠", desc: "Reverse shells, miners, web shells, droppers, credential stealers, programs hidden among documents, and malicious npm install scripts. Uses ClamAV and YARA when installed." },
+  { k: "leak", name: "Data leaks", icon: "🔒", desc: "Full card numbers, credentials and bulk personal data in agent logs, emails and exports; .env and key files committed to git." },
+  { k: "outdated", name: "Outdated software", icon: "⏳", desc: "Deprecated, abandoned or far-behind packages, and runtimes or operating systems past end of life, where new holes will never be fixed." },
   { k: "fuzz", name: "Guard fuzzing", icon: "🧪", desc: "Thousands of generated inputs against the agent's injection guard: crashes, slow regexes (ReDoS) and rewritten attacks." },
   { k: "cloud", name: "Cloud & sign-in logs", icon: "☁️", desc: "Hunts AWS CloudTrail and traffic logs for AI-driven intrusion patterns like ARTEX." },
   { k: "model", name: "AI model red-team", icon: "🎯", desc: "Tries 12 planted-instruction attacks on the live model (promptfoo). Uses API credit." },
@@ -370,7 +401,7 @@ const SCANS = [
 let token = ""; try { token = sessionStorage.getItem("shieldToken") || ""; } catch {}
 let alerts = new Map(), area = "all", showDone = false, q = "", fresh = new Set(), audioOK = false, scans = {}, open = new Set();
 let sev = null, scanF = null, cur = -1, confirmAll = 0, lastCounts = {}, lastMon = {}, activityLog = [], scanAll = null, finished = new Set();
-const SCAN_NAME = Object.fromEntries([["code","Agent code"],["website","Website"],["system","This computer"],["deps","Software packages"],["supply","Supply chain"],["secrets","Secrets in history"],["fuzz","Guard fuzzing"],["cloud","Cloud & sign-in logs"],["model","AI model red-team"]]);
+const SCAN_NAME = Object.fromEntries([["code","Agent code"],["website","Website"],["system","This computer"],["deps","Software packages"],["supply","Supply chain"],["secrets","Secrets in history"],["malware","Malware"],["leak","Data leaks"],["outdated","Outdated software"],["fuzz","Guard fuzzing"],["cloud","Cloud & sign-in logs"],["model","AI model red-team"]]);
 let REF_NAMES = {};
 const MON_AREA = { "Payments": "finance", "Files (ransomware)": "ransomware", "Sign-ins & cloud": "identity", "Outbound traffic": "network" };
 
@@ -419,7 +450,8 @@ function scanCards() {
     const s = scans[k] || {};
     const cls = s.running ? "idle" : s.error ? "err" : !s.at ? "idle" : s.worst === "critical" || s.worst === "high" ? "bad" : s.issues ? "warn" : "ok";
     const head = s.running ? "Scanning…" : s.error ? "Could not finish" : !s.at ? "Not run yet" : s.issues ? `${s.issues} issue${s.issues === 1 ? "" : "s"} found` : "No issues found";
-    const text = `<span><b style="font-weight:600">${head}</b>${!s.running && (s.error || s.summary) ? `<br><span class="desc" style="font-size:12.5px">${esc(s.error || s.summary)}</span>` : ""}</span>`;
+    const auto = s.trigger ? `<br><span class="autonote">⚡ ${s.running ? "Started" : "Ran"} automatically · ${esc(s.trigger)}</span>` : "";
+    const text = `<span><b style="font-weight:600">${head}</b>${!s.running && (s.error || s.summary) ? `<br><span class="desc" style="font-size:12.5px">${esc(s.error || s.summary)}</span>` : ""}${auto}</span>`;
     const site = k === "website" ? `<div class="field"><input type="url" id="siteUrl" placeholder="https://your-site.example" value="${esc(sessionGet("siteUrl") || scans.websiteDefault || "")}" aria-label="Website address">
       <label id="authRow" hidden><input type="checkbox" id="siteAuth"> I own this site or am authorised to test it</label></div>` : "";
     const disabled = s.running || (k === "model" && !scans.modelReady);
@@ -539,7 +571,7 @@ function render(keepToolbar) {
       <div class="body">
         <div class="what">${esc(a.detail)}</div>
         ${a.fix ? `<div class="todo"><b>What to do:</b> ${esc(a.fix)}</div>` : ""}
-        <div class="facts">${a.where ? `<span>Where: ${esc(a.where)}</span>` : ""}<span>Rule ${esc(a.rule)}</span>${a.evidence && a.evidence.zapRule ? `<span>OWASP ZAP rule ${esc(a.evidence.zapRule)}</span>` : ""}<span>${new Date(a.at).toLocaleString()}</span></div>
+        <div class="facts">${a.where ? `<span>Where: ${esc(a.where)}</span>` : ""}<span>Rule ${esc(a.rule)}</span>${a.evidence && a.evidence.zapRule ? `<span>OWASP ZAP rule ${esc(a.evidence.zapRule)}</span>` : ""}${a.evidence && a.evidence.caught ? `<span>Caught ${esc(a.evidence.caught)}</span>` : ""}<span>${new Date(a.at).toLocaleString()}</span></div>
         ${(a.refs || []).length ? `<div class="refs">${a.refs.map((r) => `<span class="ref" title="${esc(REF_NAMES[r] || r)}"><b>${esc(r)}</b> ${esc(REF_NAMES[r] || "")}</span>`).join("")}</div>` : ""}
         <div class="row-actions">${a.acknowledged ? `<span class="desc">Handled by ${esc(a.acknowledged.by)} · ${ago(a.acknowledged.at)}</span>` : `<button class="btn small primary" data-ack="${a.id}">✓ Mark as handled</button>`}<button class="btn small ghost" data-copy="${a.id}">Copy details</button></div>
       </div>
@@ -648,17 +680,33 @@ function openAlert(id) {
 }
 
 // ---- data ---------------------------------------------------------------
+let autoState = null;
+const CAT = { intrusion: "Intrusion", malware: "Malware", leak: "Data leak", vulnerability: "Old or vulnerable software" };
+function autoPanel(st) {
+  if (st) autoState = st; const a = autoState; if (!a) return;
+  const t = $("autoToggle"); t.setAttribute("aria-checked", String(a.enabled)); t.title = a.enabled ? "On: click to turn off" : "Off: click to turn on";
+  $("asMap").innerHTML = Object.entries(a.followUp).map(([c, ks]) => `<div><b>${CAT[c]}</b>→ ${ks.map((k) => SCAN_NAME[k] || k).join(", ")}</div>`).join("");
+  const rs = a.rounds || [];
+  $("asRounds").innerHTML = rs.length ? rs.slice(0, 5).map((r) => {
+    const why = r.reason === "schedule" ? "Scheduled re-check" : `${CAT[r.triggers[0].category]}: <a href="#" data-open="${esc(r.triggers[0].alertId || "")}">${esc(r.triggers[0].title)}</a>${r.triggers.length > 1 ? ` <span class="skip">+${r.triggers.length - 1} more</span>` : ""}`;
+    const skip = r.skipped.length ? ` <span class="skip">· already fresh: ${r.skipped.map((s) => SCAN_NAME[s.kind] || s.kind).join(", ")}</span>` : "";
+    return `<li><span class="k ${r.reason === "schedule" ? "s" : ""}">⚡ ${r.kinds.map((k) => SCAN_NAME[k] || k).join(", ")}</span><span>${why}${skip}</span><time datetime="${r.at}">${ago(r.at)}</time></li>`;
+  }).join("") : `<li class="none">${a.enabled ? "No automatic scans yet. Try the Malware or AI-driven intrusion drill below." : "Automatic scans are off."}</li>`;
+}
 async function load() {
   const s = await api("/api/state");
   alerts = new Map((s.alerts || []).map((a) => [a.id, a]));
   REF_NAMES = s.refNames || {};
   scans = s.scans || {}; $("target").textContent = s.target || "—";
-  monitors(s.status); probe(s.scan); email(s.email); redteamCard(s.redteam); scanCards(); render();
+  monitors(s.status); probe(s.scan); email(s.email); redteamCard(s.redteam); scanCards(); render(); autoPanel(s.autoScan);
 }
 function connect() {
   const es = new EventSource("/api/stream" + (token ? "?token=" + encodeURIComponent(token) : ""));
   es.addEventListener("hello", (e) => { $("live").classList.add("on"); $("liveText").textContent = "Live"; monitors(JSON.parse(e.data)); });
   es.addEventListener("alert", (e) => { const a = JSON.parse(e.data); alerts.set(a.id, a); fresh.add(a.id); render(); activity(`New: <a href="#" data-open="${a.id}">${esc(a.title)}</a>`, `var(--${a.severity})`); if (SEV.indexOf(a.severity) >= 3) toast(a); });
+  es.addEventListener("auto_state", (e) => autoPanel(JSON.parse(e.data)));
+  es.addEventListener("autoscan", (e) => { const r = JSON.parse(e.data); const why = r.reason === "schedule" ? "on schedule" : `after ${CAT[r.triggers[0].category].toLowerCase()}: ${esc(r.triggers[0].title)}`;
+    activity(`⚡ Automatic scan started ${why}: <b>${r.kinds.map((k) => SCAN_NAME[k] || k).join(", ")}</b>`, "var(--high)"); if (r.reason !== "schedule") snack(`Automatic scan: ${r.kinds.map((k) => SCAN_NAME[k] || k).join(", ")}`); });
   es.addEventListener("update", (e) => { const a = JSON.parse(e.data); alerts.set(a.id, a); render(); });
   es.addEventListener("ack", (e) => { const a = JSON.parse(e.data); alerts.set(a.id, a); render(); activity(`Handled: ${esc(a.title)}`, "var(--ok)"); });
   es.addEventListener("activity", (e) => monitors(JSON.parse(e.data)));
@@ -692,8 +740,13 @@ document.addEventListener("click", async (e) => {
     t.disabled = true; const r = await fetch("/api/export/defectdojo", { method: "POST", headers: token ? { authorization: `Bearer ${token}` } : {} });
     snack(r.ok ? "Sent to DefectDojo" : "DefectDojo: " + ((await r.json().catch(() => ({}))).error || r.status)); t.disabled = false;
   }
+  else if (t.id === "autoToggle") {
+    const on = t.getAttribute("aria-checked") !== "true";
+    const r = await api("/api/autoscan", { method: "POST", body: JSON.stringify({ enabled: on }) }); autoPanel(r);
+    activity(`Automatic scans turned <b>${on ? "on" : "off"}</b>`, on ? "var(--ok)" : "var(--faint)");
+  }
   else if (t.id === "scanAll") {
-    const kinds = ["code", "system", "deps", "supply", "secrets", "fuzz", "cloud", "website"].concat(scans.modelReady ? ["model"] : []);
+    const kinds = ["code", "system", "deps", "outdated", "supply", "secrets", "malware", "leak", "fuzz", "cloud", "website"].concat(scans.modelReady ? ["model"] : []);
     const u = $("siteUrl"); const url = u ? u.value.trim() : "";
     const needsAuth = $("authRow") && !$("authRow").hidden && !$("siteAuth").checked;
     scanAll = needsAuth ? kinds.filter((k) => k !== "website") : kinds;

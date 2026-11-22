@@ -7,7 +7,7 @@
  * so an alert can be filed under the control it belongs to, and coverage can be shown.
  */
 export const NAMES: Record<string, string> = {
-  T1496: "Resource Hijacking", "T1552.005": "Cloud Instance Metadata API",
+  T1496: "Resource Hijacking", "T1552.005": "Cloud Instance Metadata API", T1059: "Command and Scripting Interpreter", "T1505.003": "Server Software Component: Web Shell", T1027: "Obfuscated Files or Information", T1105: "Ingress Tool Transfer", T1555: "Credentials from Password Stores", "T1036": "Masquerading", T1005: "Data from Local System", "T1552": "Unsecured Credentials",
   LLM04: "Data and Model Poisoning", LLM07: "System Prompt Leakage", LLM08: "Vector and Embedding Weaknesses", LLM09: "Misinformation", ASI06: "Memory & Context Poisoning", ASI07: "Insecure Inter-Agent Communication",
   LLM01: "Prompt Injection", LLM02: "Sensitive Information Disclosure", LLM03: "Supply Chain", LLM05: "Improper Output Handling", LLM06: "Excessive Agency", LLM10: "Unbounded Consumption",
   ASI01: "Agent Goal Hijack", ASI02: "Tool Misuse and Exploitation", ASI03: "Identity and Privilege Abuse", ASI04: "Agentic Supply Chain Vulnerabilities", ASI05: "Unexpected Code Execution", ASI08: "Cascading Failures", ASI09: "Human-Agent Trust Exploitation", ASI10: "Rogue Agents",
@@ -63,6 +63,18 @@ const MAP: [RegExp, string[]][] = [
   [/^ID-S3-SSEC-ENCRYPT/, ["T1486"]],
   [/^ID-LLMJACKING/, ["T1496", "LLM10", "T1078.004"]],
   [/^ID-INSTANCE-RECON/, ["T1580", "T1552.005"]],
+  [/^MAL-REVERSE-SHELL/, ["T1059", "A08:2025"]],
+  [/^MAL-WEBSHELL/, ["T1505.003", "A05:2025"]],
+  [/^MAL-MINER/, ["T1496"]],
+  [/^MAL-OBFUSCATED-EXEC/, ["T1027", "A08:2025"]],
+  [/^MAL-DROPPER/, ["T1105", "A08:2025", "T1195.001"]],
+  [/^MAL-CREDENTIAL-STEALER/, ["T1555", "T1552.001", "LLM02"]],
+  [/^MAL-(HIDDEN-EXECUTABLE|EXECUTABLE-IN-DATA)/, ["T1036"]],
+  [/^MAL-/, ["A08:2025", "T1195.001"]],
+  [/^LEAK-(CARD-NUMBER|BULK-PII|TEST-CARD)/, ["LLM02", "A04:2025", "T1005"]],
+  [/^LEAK-SECRET-IN-LOGS/, ["LLM02", "A09:2025", "T1552.001"]],
+  [/^LEAK-SENSITIVE-FILE-TRACKED/, ["A04:2025", "T1552.001"]],
+  [/^OLD-/, ["A03:2025", "LLM03", "ASI04"]],
   [/^(WEB-|OWASP-SHP|OWASP-XSS-PROTECTION|ZAP-)/, ["A02:2025"]],
   [/^(SYS-OPEN-PORT|SYS-ROOT|SYS-SSH|SYS-WORLD-WRITABLE|SYS-NODE-EOL|FALCO-RUNTIME)/, ["A02:2025"]],
 ];

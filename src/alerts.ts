@@ -11,7 +11,7 @@ import { refsFor } from "./frameworks.ts";
 
 export const SEVERITIES = ["info", "low", "medium", "high", "critical"] as const;
 export type Severity = (typeof SEVERITIES)[number];
-export type Source = "code" | "llm" | "finance" | "access" | "ransomware" | "identity" | "network" | "web" | "system";
+export type Source = "code" | "llm" | "finance" | "access" | "ransomware" | "malware" | "leak" | "identity" | "network" | "web" | "system";
 
 export interface Finding {
   source: Source;

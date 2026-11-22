@@ -51,7 +51,7 @@ It has light and dark themes. On phones, the header collapses to icons, the filt
 | `npm run simulate:finance` | Write an attacked agent run log to `sandbox/runs` |
 | `npm run simulate:artex` | Write an ARTEX-style intrusion as CloudTrail and egress logs to `sandbox/cloud` |
 | `npm run stratus -- list` | Stratus Red Team coverage map |
-| `npm test` | Detector, integration, method, OWASP and gap tests (52) |
+| `npm test` | Detector, integration, method, OWASP, gap and automatic-scan tests (61) |
 
 Settings (environment variables):
 
@@ -190,7 +190,7 @@ Not built in: AI vulnerability hunting such as Google's Big Sleep and CodeMender
 
 ## On-demand scans
 
-The dashboard's scan buttons call `POST /api/scan/:kind` (`code`, `website`, `system`, `deps`, `cloud`, `model`).
+The dashboard's scan buttons call `POST /api/scan/:kind` (`code`, `website`, `system`, `deps`, `outdated`, `supply`, `secrets`, `malware`, `leak`, `fuzz`, `cloud`, `model`).
 - **Website** (`src/detectors/web-scan.ts`) sends a handful of ordinary GET requests and reads the responses; it never attacks the site. It checks:
   - HTTP→HTTPS redirect, HSTS, certificate expiry
   - Content-Security-Policy, framing, nosniff, Referrer-Policy, Permissions-Policy
@@ -202,6 +202,31 @@ The dashboard's scan buttons call `POST /api/scan/:kind` (`code`, `website`, `sy
   - permissions on `.env` and key files
   - world-writable watched folders
 - **Software packages** runs `npm audit --omit=dev` in the target. It follows each vulnerable package back to its advisory, so one bug carried by six packages is one alert.
+- **Malware** (`src/detectors/malware.ts`) checks the agent's code, every installed package's install scripts and the watched data folders for:
+  - files on a known-malware hash list (the EICAR test file built in; add hashes, e.g. from abuse.ch MalwareBazaar, to `state/intel/malware-hashes.txt`)
+  - reverse shells, crypto miners, web shells, obfuscated code that decodes and runs a payload, download-and-run droppers, and code that reads stored credentials and sends them out
+  - programs hidden among documents (an `.exe` or Linux binary named like a CSV)
+  - npm `preinstall`/`postinstall` scripts that download and run code, the route of the 2025 npm worms
+  - ClamAV and YARA verdicts too, when `clamscan` is installed or `YARA_RULES` points at a rules folder
+- **Data leaks** (`src/detectors/leak.ts`) looks where data should not be at rest: agent run logs, server logs, alert emails and exports. It finds full card numbers (Luhn-checked, known test cards told apart, only the last four digits ever shown), credentials written to logs, bulk personal data, and `.env`, key and credential files committed to git.
+- **Outdated software** (`src/detectors/outdated.ts`) reads the npm registry for each direct dependency: deprecated versions, two or more major versions behind, or no release in two years. It also checks runtimes against their end-of-life dates: Node.js on the host, Docker base images, AWS Lambda runtimes in the code, and the operating system.
+
+## Automatic scans
+
+When an alert shows an intrusion, malware, a data leak or old vulnerable software, Agent Shield starts the scans that check what else is affected, without anyone pressing a button (`src/autoscan.ts`):
+
+| Alert family | Example rules | Scans started |
+|---|---|---|
+| Intrusion | `ID-*`, `NET-*`, `FALCO-RUNTIME`, `FIN-UNLOGGED-TRANSFER`, `FIN-WEBHOOK-REJECTED` | Cloud & sign-in logs, This computer, Secrets in history, Malware, Data leaks |
+| Malware | `MAL-*`, `RANSOM-*`, `SUPPLY-SIGNATURE-INVALID`, `ID-S3-SSEC-ENCRYPT` | Malware, This computer, Supply chain, Data leaks |
+| Data leak | `LEAK-*`, `SECRET-HISTORY-*`, `NET-WEBHOOK-EXFIL`, `ID-SNAPSHOT-SHARE` | Data leaks, Secrets in history, Agent code, Cloud & sign-in logs |
+| Old or vulnerable software (high and above) | `SYS-VULN-DEPENDENCY`, `OSV-VULN`, `OLD-*` | Software packages, Supply chain, Outdated software |
+
+- **Caught as it happens.** Files written to the watched folder are checked for malware the moment they land (on access), and every line the agent writes to its log is checked for card numbers and credentials, so a detection does not wait for the next scan.
+- **No storms.** Alerts that arrive together are batched into one round; scans run one at a time; a scan never restarts itself; and each scan has a 10-minute cooldown (`AUTO_SCAN_COOLDOWN_MIN`). New live evidence re-runs a scan that ran before it, at most every 20 seconds (`AUTO_SCAN_MIN_GAP_S`).
+- **On a schedule too.** Packages, outdated software, supply chain and git history are re-checked every 24 hours, malware and leaks every 6, because new advisories against old packages appear without anything changing on your side.
+- **Under your control.** The dashboard's Automatic scans switch (or `POST /api/autoscan {"enabled": false}`, or `AUTO_SCAN=0`) turns it off. Each round is listed with what started it and which scans were already fresh.
+- **Practice drills.** *Malware* drops three harmless samples (the EICAR test file, a program named like a CSV, a download-and-run script) into the sandbox; *Data leak* writes an agent log with a full card number. Both are caught live and start their follow-up scans.
 
 ## Connected tools
 

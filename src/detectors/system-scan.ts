@@ -14,6 +14,7 @@ import { readFileSync, existsSync, statSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { execFile } from "node:child_process";
 import type { Finding, Severity } from "../alerts.ts";
+import { nodeStatus } from "./outdated.ts";
 
 export interface SystemScanResult { at: string; host: string; findings: Finding[]; passed: string[]; summary: string; listening: { port: number; address: string }[] }
 
@@ -57,8 +58,9 @@ export function scanSystem(opts: { targetDir: string; watchDirs: string[] }): Sy
   if (process.getuid?.() === 0) f("SYS-ROOT", "medium", "Running as root", "If anything in this process is compromised, the attacker owns the whole machine.", "Run the agent and Agent Shield as an unprivileged user (or a container user).");
   else passed.push("Not running as root");
   const major = Number(process.versions.node.split(".")[0]);
-  if (major < 20) f("SYS-NODE-EOL", "high", `Node.js ${process.versions.node} no longer gets security fixes`, "End-of-life runtimes stay vulnerable to published bugs.", "Upgrade to Node.js 22 LTS.");
-  else passed.push(`Node.js ${process.versions.node} is supported`);
+  const ns = nodeStatus(major);
+  if (ns.eol) f("SYS-NODE-EOL", "high", `Node.js ${process.versions.node} no longer gets security fixes`, `Security fixes ended (${ns.date}); end-of-life runtimes stay vulnerable to published bugs.`, "Upgrade to Node.js 22 or 24 LTS.");
+  else passed.push(`Node.js ${process.versions.node} is supported until ${ns.date}`);
 
   // SSH
   if (existsSync("/etc/ssh/sshd_config")) {
