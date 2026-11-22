@@ -6,9 +6,9 @@ The first target is [Airwallex Agent Desk](https://github.com/Rokit12/airwallex)
 
 ## Demo video
 
-[![Agent Shield 3-minute demo](docs/demo/poster.jpg)](docs/demo/Agent-Shield-Pitch.mp4)
+[![Agent Shield 4-minute demo](docs/demo/poster.jpg)](docs/demo/Agent-Shield-Demo.mp4)
 
-**[Watch the 3-minute demo (MP4, 1080p)](docs/demo/Agent-Shield-Pitch.mp4)**: a pitch walkthrough of the dashboard scanning Airwallex Agent Desk, then catching an unlogged transfer, ransomware and an AI-driven cloud intrusion in a sandbox.
+**[Watch the 4-minute demo (MP4, 1080p, narrated)](docs/demo/Agent-Shield-Demo.mp4)**: a narrated walkthrough of the dashboard scanning Airwallex Agent Desk, then catching an unlogged transfer, ransomware and an AI-driven cloud intrusion in a sandbox.
 
 ## Run it
 
