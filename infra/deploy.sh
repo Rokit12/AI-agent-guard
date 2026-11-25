@@ -32,7 +32,13 @@ case "${1:-deploy}" in
 esac
 
 need docker "install Docker and start it (the image is built locally)"
-docker info >/dev/null 2>&1 || { echo "Docker is installed but not running. Start it and try again." >&2; exit 1; }
+if ! docker info >/dev/null 2>&1; then
+  if sudo -n docker info >/dev/null 2>&1 || [ -S /var/run/docker.sock ]; then
+    echo "Docker needs sudo for your user, but the deploy runs docker without it. Run once:" >&2
+    echo "  sudo usermod -aG docker \$USER   (then log out and back in, or run: newgrp docker)" >&2
+  else echo "Docker is installed but not running. Start it and try again." >&2; fi
+  exit 1
+fi
 
 # A random header value CloudFront sends to the load balancer; anything without it gets 403.
 [ -f .origin-secret ] || { openssl rand -hex 24 > .origin-secret; chmod 600 .origin-secret; }
@@ -40,7 +46,7 @@ docker info >/dev/null 2>&1 || { echo "Docker is installed but not running. Star
 [ -d node_modules ] || npm ci --no-audit --no-fund --loglevel=error
 
 echo "Deploying Agent Shield to account $ACCOUNT in $REGION ..."
-npx cdk bootstrap "aws://$ACCOUNT/$REGION" >/dev/null
+npx cdk bootstrap "aws://$ACCOUNT/$REGION" -c originSecret="$(cat .origin-secret)" -c region="$REGION"
 npx cdk deploy --require-approval never --outputs-file outputs.json \
   -c originSecret="$(cat .origin-secret)" -c region="$REGION" \
   ${ALERT_EMAIL:+-c alertEmail="$ALERT_EMAIL"} ${TARGET_REPO:+-c targetRepo="$TARGET_REPO"}

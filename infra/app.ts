@@ -24,7 +24,7 @@ import * as origins from "aws-cdk-lib/aws-cloudfront-origins";
 import * as iam from "aws-cdk-lib/aws-iam";
 import * as logs from "aws-cdk-lib/aws-logs";
 import * as secrets from "aws-cdk-lib/aws-secretsmanager";
-import { Platform } from "aws-cdk-lib/aws-ecr-assets";
+import { Platform, NetworkMode } from "aws-cdk-lib/aws-ecr-assets";
 import type { Construct } from "constructs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -67,7 +67,8 @@ class AgentShieldStack extends Stack {
 
     const logGroup = new logs.LogGroup(this, "Logs", { retention: logs.RetentionDays.ONE_MONTH, removalPolicy: RemovalPolicy.DESTROY });
     const container = task.addContainer("shield", {
-      image: ecs.ContainerImage.fromAsset(ROOT, { platform: Platform.LINUX_AMD64 }),
+      // host network for the build: works where firewalls or VPNs block Docker's own bridge network
+      image: ecs.ContainerImage.fromAsset(ROOT, { platform: Platform.LINUX_AMD64, networkMode: NetworkMode.HOST }),
       logging: ecs.LogDrivers.awsLogs({ streamPrefix: "shield", logGroup }),
       environment: {
         HOST: "0.0.0.0", PORT: "4600", DATA_DIR: "/data",
