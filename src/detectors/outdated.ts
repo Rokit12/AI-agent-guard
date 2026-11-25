@@ -10,7 +10,7 @@
  * finds the old components where the next vulnerability will never be fixed.
  */
 import { existsSync, readFileSync, readdirSync, statSync, writeFileSync, mkdirSync } from "node:fs";
-import { join, basename, relative } from "node:path";
+import { join, basename, relative, resolve } from "node:path";
 import type { Finding, Severity } from "../alerts.ts";
 
 /** End-of-life dates (last day of security fixes). */
@@ -73,13 +73,13 @@ function installedVersion(project: string, name: string): string | null {
   return null;
 }
 
-function* textFiles(root: string, depth = 0): Generator<string> {
-  if (depth > 4) return;
+function* textFiles(root: string, depth = 0, others: string[] = []): Generator<string> {
+  if (depth > 4 || (depth > 0 && others.includes(root))) return; // another project nested inside this one is checked on its own
   let names: string[] = []; try { names = readdirSync(root); } catch { return; }
   for (const n of names) {
     if (["node_modules", ".git", "dist", "cdk.out", "state", "sandbox", "runs", "outbox", "coverage", "test", "tests", "__tests__", "fixtures", "scratch"].includes(n)) continue;
     const p = join(root, n); let st; try { st = statSync(p); } catch { continue; }
-    if (st.isDirectory()) yield* textFiles(p, depth + 1);
+    if (st.isDirectory()) yield* textFiles(p, depth + 1, others);
     else if (/^(Dockerfile.*|.*\.(ts|js|mjs|json|ya?ml|tf))$/i.test(n) && !/package-lock\.json$|\.(test|spec)\.[cm]?[jt]s$/.test(n) && st.size < 1_000_000) yield p;
   }
 }
@@ -132,7 +132,7 @@ export async function scanOutdated(projects: string[], cacheDir?: string, now = 
         checked++; findings.push(...judgePackage(name, inst, meta, basename(project), now));
       }
     }));
-    for (const f of textFiles(project)) findings.push(...runtimeFindings(readFileSync(f, "utf8"), `${basename(project)}/${relative(project, f)}`, now));
+    for (const f of textFiles(project, 0, projects.map((x) => resolve(x)))) findings.push(...runtimeFindings(readFileSync(f, "utf8"), `${basename(project)}/${relative(project, f)}`, now));
   }
   if (cacheFile) { mkdirSync(cacheDir!, { recursive: true }); writeFileSync(cacheFile, JSON.stringify(cache)); }
   const node = nodeStatus(Number(process.versions.node.split(".")[0]), now);

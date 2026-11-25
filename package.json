@@ -19,7 +19,10 @@
     "garak:import": "tsx src/cli.ts garak",
     "simulate:artex": "tsx scripts/simulate-artex.ts",
     "stratus": "tsx scripts/stratus.ts",
-    "semgrep": "cd ${TARGET_DIR:-../airwallex} && SEMGREP_ENABLE_VERSION_CHECK=0 semgrep scan --config $INIT_CWD/rules/semgrep --metrics=off --exclude node_modules ."
+    "semgrep": "cd ${TARGET_DIR:-../airwallex} && SEMGREP_ENABLE_VERSION_CHECK=0 semgrep scan --config $INIT_CWD/rules/semgrep --metrics=off --exclude node_modules .",
+    "aws:deploy": "sh infra/deploy.sh",
+    "aws:token": "sh infra/deploy.sh token",
+    "aws:destroy": "sh infra/deploy.sh destroy"
   },
   "engines": {
     "node": ">=22"

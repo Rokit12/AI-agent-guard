@@ -78,6 +78,27 @@ Settings (environment variables):
 | `SHIELD_TOKEN` | none | If set, every API call and the dashboard need this token |
 | `HOST`, `PORT` | `127.0.0.1`, `4600` | Where the dashboard listens |
 
+## Host it on AWS
+
+`infra/` deploys Agent Shield to your AWS account with one command (AWS CDK):
+
+```sh
+npm run aws:deploy        # needs AWS credentials, Docker running and Node.js 22; region: $AWS_REGION (default us-west-2)
+npm run aws:token         # prints the dashboard access token
+npm run aws:destroy       # deletes the stack; the stored alerts are kept
+```
+
+```
+browser ─HTTPS─▶ CloudFront ─(secret header)─▶ Load balancer ─▶ ECS Fargate task ─▶ EFS (alerts, emails, logs)
+Airwallex ─▶ /api/webhooks/airwallex (signature-checked)          └─▶ CloudTrail LookupEvents (live, read-only)
+```
+
+- **One container** on Fargate (0.5 vCPU, 1 GB) built from the `Dockerfile`. On start it clones the agent's repository (`TARGET_REPO`, default Agent Desk), installs its packages with `--ignore-scripts`, and pulls every 30 minutes.
+- **Alerts survive restarts** on an encrypted EFS file system, kept even if the stack is deleted.
+- **Locked down:** the dashboard and API need the access token generated into Secrets Manager; the load balancer refuses anything that did not come through CloudFront; HTTPS only; the task's only AWS permission is read-only `cloudtrail:LookupEvents`, which turns on the live cloud monitor for the account.
+- **Integrations** (Airwallex webhook secret, SMTP, Slack, PagerDuty) are empty keys in a second Secrets Manager secret: fill in the ones you want and restart the service (the deploy prints the command).
+- **Cost:** about US$35–40 a month (Fargate ~$18, load balancer ~$18, EFS, Secrets Manager and CloudFront a few dollars).
+
 ## The detectors
 
 **1. AI-agent code scanner** (`src/detectors/code-scan.ts`). Flags money-moving calls with no approval gate or no idempotency key, outside text sent to a model without a data fence, model output used as a paid amount, card numbers reaching a model, secrets in code or in git, TLS checks turned off, and `eval`.

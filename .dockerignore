@@ -4,3 +4,7 @@ outbox
 sandbox
 logs
 .env
+scratch
+infra
+target
+.git

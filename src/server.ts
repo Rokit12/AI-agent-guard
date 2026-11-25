@@ -445,6 +445,8 @@ createServer(async (req, res) => {
     res.writeHead(200, { "content-type": "text/html; charset=utf-8", "content-security-policy": "default-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; script-src 'self' 'unsafe-inline'; connect-src 'self'" });
     return res.end(ui());
   }
+  // Load-balancer health check: says only that the process is up, nothing about alerts.
+  if (url.pathname === "/healthz") return json(res, 200, { ok: true });
   if (!url.pathname.startsWith("/api/")) { res.writeHead(404); return res.end(); }
   // Airwallex cannot send our token: this route is authenticated by the webhook signature instead.
   if (req.method === "POST" && url.pathname === "/api/webhooks/airwallex") {
@@ -461,7 +463,9 @@ createServer(async (req, res) => {
       res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-store", connection: "keep-alive" });
       res.write(`event: hello\ndata: ${JSON.stringify(status())}\n\n`);
       clients.add(res);
-      req.on("close", () => clients.delete(res));
+      // A comment line every 20 s keeps proxies (CloudFront, load balancers) from closing a quiet stream.
+      const beat = setInterval(() => res.write(": keep-alive\n\n"), 20_000);
+      req.on("close", () => { clearInterval(beat); clients.delete(res); });
       return;
     }
     if (req.method === "GET" && url.pathname === "/api/state")

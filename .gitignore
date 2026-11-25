@@ -3,3 +3,9 @@ node_modules
 state
 outbox
 sandbox
+infra/node_modules
+infra/cdk.out
+infra/outputs.json
+infra/.origin-secret
+infra/cdk.context.json
+target
