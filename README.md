@@ -2,6 +2,8 @@
 
 Security monitoring for AI agents that move money. Agent Shield scans an agent's code, probes its prompt-injection guard, watches its payments as they happen, audits who can make it act, detects AI-driven intrusions (the ARTEX pattern in the FBI's November 2026 warning) in identity, cloud and network logs, and detects ransomware in the folders it depends on. Every finding becomes one alert with a severity, what was seen, and what to do. Alerts appear live on a dashboard, and high and critical ones are emailed to the support team.
 
+**Live on AWS:** [d4nblwwdr4k5u.cloudfront.net](https://d4nblwwdr4k5u.cloudfront.net/) (the dashboard asks for an access token; ask the owner for one). It runs on ECS Fargate with alerts on EFS, scans Agent Desk from its GitHub repository, and watches the AWS account's CloudTrail live. See [Host it on AWS](#host-it-on-aws).
+
 The first target is [Airwallex Agent Desk](https://github.com/Rokit12/airwallex), the 15-agent finance desk built for the Agentic Banking Hackathon. Agent Shield is a separate project: it reads Agent Desk's code and audit logs, and changes nothing in it.
 
 ## Demo video
@@ -21,7 +23,7 @@ The dashboard opens with a plain status line ("All clear", "N things to fix toda
 
 - **Run a scan**: one button per check.
   - **Agent code**: the code scanner and access audit.
-  - **Website**: a passive check of a site's HTTPS, security headers, cookies, exposed files and CORS. It defaults to the Agent Desk console; other sites need the "I own this site" box ticked.
+  - **Website**: HTTPS, TLS, security headers, cookies, exposed files and CORS. It defaults to the Agent Desk console, with a one-click preset for the [Airwallex web app](https://www.airwallex.com/app). Sites you do not own get a passive check only (see below).
   - **This computer**: open ports, root, Node.js version, SSH and secret file permissions.
   - **Software packages**: npm audit of the agent's dependencies, one alert per advisory.
   - **Cloud & sign-in logs**: re-reads all CloudTrail and egress logs.
@@ -51,7 +53,7 @@ It has light and dark themes. On phones, the header collapses to icons, the filt
 | `npm run simulate:finance` | Write an attacked agent run log to `sandbox/runs` |
 | `npm run simulate:artex` | Write an ARTEX-style intrusion as CloudTrail and egress logs to `sandbox/cloud` |
 | `npm run stratus -- list` | Stratus Red Team coverage map |
-| `npm test` | Detector, integration, method, OWASP, gap and automatic-scan tests (61) |
+| `npm test` | Detector, integration, method, OWASP, gap, automatic-scan, cryptography and solutions tests (66) |
 
 Settings (environment variables):
 
@@ -211,13 +213,17 @@ Not built in: AI vulnerability hunting such as Google's Big Sleep and CodeMender
 
 ## On-demand scans
 
-The dashboard's scan buttons call `POST /api/scan/:kind` (`code`, `website`, `system`, `deps`, `outdated`, `supply`, `secrets`, `malware`, `leak`, `fuzz`, `cloud`, `model`).
-- **Website** (`src/detectors/web-scan.ts`) sends a handful of ordinary GET requests and reads the responses; it never attacks the site. It checks:
+The dashboard's scan buttons call `POST /api/scan/:kind` (`code`, `website`, `system`, `deps`, `outdated`, `crypto`, `supply`, `secrets`, `malware`, `leak`, `fuzz`, `cloud`, `model`).
+- **Website** (`src/detectors/web-scan.ts`) sends ordinary GET requests and reads the responses; it never attacks the site. A site you do not own (not in `SCAN_ALLOWED_HOSTS`, and "I own this site" not ticked), such as `https://www.airwallex.com/app`, gets a **passive check**: the page itself, its HTTP-to-HTTPS redirect and TLS handshakes, the same requests a browser or SSL Labs makes, with no probing for hidden files, source maps or CORS, and no ZAP. Your own sites get the full check:
   - HTTP→HTTPS redirect, HSTS, certificate expiry
   - Content-Security-Policy, framing, nosniff, Referrer-Policy, Permissions-Policy
   - server version leaks and cookie flags
   - nine sensitive paths (`/.env`, `/.git/config` and others), aware of single-page-app fallbacks
   - public source maps and CORS that reflects any origin
+- **Cryptography** (`src/detectors/crypto.ts`) looks for OWASP Top 10:2025 A04 cryptographic failures:
+  - in code: MD5/SHA-1 where security depends on them, DES/3DES/RC4/ECB and `createCipher()`, fixed IVs, `Math.random()` for tokens and keys, hard-coded keys, RSA under 2048 bits, JWT `none`, signatures compared with `===` instead of `timingSafeEqual`, fast password hashing, and API calls over plain HTTP
+  - in infrastructure code (CDK, CloudFormation, Terraform): encryption switched off, KMS keys without rotation, TLS 1.0/1.1 policies, buckets without `enforceSSL`, CDN origins over HTTP
+  - live TLS on the website and `CRYPTO_SITES` (default: the Airwallex web app): TLS 1.0/1.1 still accepted, RC4/3DES/NULL/export suites, no forward secrecy, certificate keys under 2048 bits, SHA-1 or MD5 certificate signatures
 - **This computer** (`src/detectors/system-scan.ts`) reads `/proc/net/tcp` for services open to the network, and checks:
   - root, Node.js end of life, `sshd_config`
   - permissions on `.env` and key files
@@ -231,6 +237,16 @@ The dashboard's scan buttons call `POST /api/scan/:kind` (`code`, `website`, `sy
   - ClamAV and YARA verdicts too, when `clamscan` is installed or `YARA_RULES` points at a rules folder
 - **Data leaks** (`src/detectors/leak.ts`) looks where data should not be at rest: agent run logs, server logs, alert emails and exports. It finds full card numbers (Luhn-checked, known test cards told apart, only the last four digits ever shown), credentials written to logs, bulk personal data, and `.env`, key and credential files committed to git.
 - **Outdated software** (`src/detectors/outdated.ts`) reads the npm registry for each direct dependency: deprecated versions, two or more major versions behind, or no release in two years. It also checks runtimes against their end-of-life dates: Node.js on the host, Docker base images, AWS Lambda runtimes in the code, and the operating system.
+
+## Solutions for every finding
+
+Each alert has a **💡 Solutions** tab next to its details, and the **💡 Solutions** button above the alert list groups every open alert by the playbook that fixes it, worst first (`src/solutions.ts`, `GET /api/solutions`). Each playbook gives:
+
+- why it matters, and the alert's own fix first
+- a **quick fix** to contain it now, the **proper fix**, and how to **prevent it coming back**, with code where it helps (CloudFront header policies, AES-GCM with a random IV, `timingSafeEqual`, card masking, npm overrides)
+- the reference to read: OWASP cheat sheets, CWE entries, CISA, AWS and npm guidance
+
+There are 25 playbooks covering every rule family: cryptography, website, malware and ransomware, leaks, outdated and vulnerable packages, supply chain, secrets, prompt injection, payments, agent tools and memory, cloud intrusions, access control, the host, and dangerous code.
 
 ## Automatic scans
 
@@ -291,6 +307,7 @@ The dashboard receives alerts over Server-Sent Events as they happen. It shows a
 - **Website (the console): one medium issue.** It has no Content-Security-Policy; the other 8 checks pass.
 - **Dependencies: 10 known vulnerabilities (8 high).** These include a Zod memory-exhaustion advisory in Zod and the 6 x402/Metal packages that bundle it (one alert), and a body-parser denial of service.
 - **Prompt-injection guard: catches 8 of 16 attacks with no false alarms.** It misses obfuscated, base64-encoded and non-English instructions, and one polite payment redirection. Adding the normaliser in `llm-probes.ts` raises that to 15 of 16. Agent Desk's code never acts on document text, so these misses are gaps in warning, not in safety: the guard would stay quiet, but the agent still would not pay.
+- **Cryptography: clean where it matters.** No weak hashes, broken ciphers, fixed IVs or non-constant-time signature checks; signatures use `timingSafeEqual`. Two low notes: the offline emulators make IDs with `Math.random()`. Agent Shield's own AWS setup has one medium finding: CloudFront reaches the load balancer over plain HTTP (the fix is a CloudFront VPC origin; see its Solutions tab).
 
 ## Limits, and how each is now covered
 

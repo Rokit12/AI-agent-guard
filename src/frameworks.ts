@@ -7,7 +7,7 @@
  * so an alert can be filed under the control it belongs to, and coverage can be shown.
  */
 export const NAMES: Record<string, string> = {
-  T1496: "Resource Hijacking", "T1552.005": "Cloud Instance Metadata API", T1059: "Command and Scripting Interpreter", "T1505.003": "Server Software Component: Web Shell", T1027: "Obfuscated Files or Information", T1105: "Ingress Tool Transfer", T1555: "Credentials from Password Stores", "T1036": "Masquerading", T1005: "Data from Local System", "T1552": "Unsecured Credentials",
+  T1496: "Resource Hijacking", T1557: "Adversary-in-the-Middle", "T1600": "Weaken Encryption", "T1552.005": "Cloud Instance Metadata API", T1059: "Command and Scripting Interpreter", "T1505.003": "Server Software Component: Web Shell", T1027: "Obfuscated Files or Information", T1105: "Ingress Tool Transfer", T1555: "Credentials from Password Stores", "T1036": "Masquerading", T1005: "Data from Local System", "T1552": "Unsecured Credentials",
   LLM04: "Data and Model Poisoning", LLM07: "System Prompt Leakage", LLM08: "Vector and Embedding Weaknesses", LLM09: "Misinformation", ASI06: "Memory & Context Poisoning", ASI07: "Insecure Inter-Agent Communication",
   LLM01: "Prompt Injection", LLM02: "Sensitive Information Disclosure", LLM03: "Supply Chain", LLM05: "Improper Output Handling", LLM06: "Excessive Agency", LLM10: "Unbounded Consumption",
   ASI01: "Agent Goal Hijack", ASI02: "Tool Misuse and Exploitation", ASI03: "Identity and Privilege Abuse", ASI04: "Agentic Supply Chain Vulnerabilities", ASI05: "Unexpected Code Execution", ASI08: "Cascading Failures", ASI09: "Human-Agent Trust Exploitation", ASI10: "Rogue Agents",
@@ -63,6 +63,9 @@ const MAP: [RegExp, string[]][] = [
   [/^ID-S3-SSEC-ENCRYPT/, ["T1486"]],
   [/^ID-LLMJACKING/, ["T1496", "LLM10", "T1078.004"]],
   [/^ID-INSTANCE-RECON/, ["T1580", "T1552.005"]],
+  [/^CRYPTO-(PLAINTEXT-HTTP|CDN-HTTP-ORIGIN|BUCKET-NO-TLS|TLS-|NO-FORWARD-SECRECY|OLD-TLS-POLICY)/, ["A04:2025", "T1557"]],
+  [/^CRYPTO-(HARDCODED-KEY|STORAGE-UNENCRYPTED)/, ["A04:2025", "LLM02", "T1552.001"]],
+  [/^CRYPTO-/, ["A04:2025"]],
   [/^MAL-REVERSE-SHELL/, ["T1059", "A08:2025"]],
   [/^MAL-WEBSHELL/, ["T1505.003", "A05:2025"]],
   [/^MAL-MINER/, ["T1496"]],

@@ -179,6 +179,29 @@ code{font:12.5px var(--mono);background:var(--panel2);padding:1px 5px;border-rad
 .al .body{animation:open .2s ease-out}
 @keyframes open{from{opacity:0;transform:translateY(-3px)}}
 .feed-act{padding:8px 0 0;font-size:13.5px}
+.presets{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
+.chip{font:500 12.5px var(--sans);border:1px solid var(--line);background:var(--panel2);color:var(--ink);border-radius:999px;padding:5px 11px;cursor:pointer;min-height:32px}
+.chip:hover{border-color:var(--ink)}
+.passive-note{display:block;font-size:12.5px;margin-top:6px}
+.tabs{display:flex;gap:4px;border-bottom:1px solid var(--line)}
+.tabs button{font:600 13px var(--sans);background:none;border:0;border-bottom:2px solid transparent;padding:8px 10px;color:var(--muted);cursor:pointer;min-height:40px}
+.tabs button[aria-selected="true"]{color:var(--ink);border-bottom-color:var(--c)}
+.al .body,.al .body>*{min-width:0}
+.sol{display:grid;gap:10px;grid-template-columns:minmax(0,1fr);min-width:0}
+.sol .opt,.sol .opt>*{min-width:0}
+.sol ol,.sol p,.affected{overflow-wrap:anywhere}
+.sol .why{margin:0;font-size:14px}
+.sol .opt{border:1px solid var(--line);border-radius:10px;padding:10px 12px;background:var(--panel2)}
+.sol h5{margin:0 0 6px;font-size:13px}
+.sol .k{display:inline-block;font-size:11.5px;font-weight:700;padding:2px 8px;border-radius:999px}
+.sol .k.now{background:color-mix(in srgb,var(--high) 18%,transparent);color:var(--high)}
+.sol .k.fix{background:color-mix(in srgb,var(--ok) 18%,transparent);color:var(--ok)}
+.sol .k.keep{background:color-mix(in srgb,var(--muted) 18%,transparent);color:var(--muted)}
+.sol ol{margin:0;padding-left:20px;display:grid;gap:4px;font-size:14px}
+.sol p{margin:0;font-size:14px}
+.sol pre{margin:8px 0 0;padding:10px;border-radius:8px;background:var(--bg);overflow-x:auto;font:12px/1.5 var(--mono);max-width:100%}
+.srefs{font-size:12.5px;color:var(--muted)}.srefs a{color:inherit}
+.affected{margin:0;padding-left:18px;font-size:13.5px;display:grid;gap:3px}
 .autonote{display:inline-block;margin-top:4px;font-size:12px;color:var(--high);font-weight:600}
 .autoscan{margin-top:12px;background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:14px 16px;display:grid;gap:12px}
 .as-head{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:14px;align-items:start}
@@ -393,6 +416,7 @@ const SCANS = [
   { k: "secrets", name: "Secrets in history", icon: "🔑", desc: "Searches every commit, not just today's files, for keys and tokens that were ever pushed." },
   { k: "malware", name: "Malware", icon: "🦠", desc: "Reverse shells, miners, web shells, droppers, credential stealers, programs hidden among documents, and malicious npm install scripts. Uses ClamAV and YARA when installed." },
   { k: "leak", name: "Data leaks", icon: "🔒", desc: "Full card numbers, credentials and bulk personal data in agent logs, emails and exports; .env and key files committed to git." },
+  { k: "crypto", name: "Cryptography", icon: "🔐", desc: "OWASP A04 cryptographic failures: weak hashes and ciphers, fixed IVs, predictable secrets, hard-coded keys, unencrypted storage, old TLS policies, and live TLS checks (old protocols, weak ciphers, weak certificates)." },
   { k: "outdated", name: "Outdated software", icon: "⏳", desc: "Deprecated, abandoned or far-behind packages, and runtimes or operating systems past end of life, where new holes will never be fixed." },
   { k: "fuzz", name: "Guard fuzzing", icon: "🧪", desc: "Thousands of generated inputs against the agent's injection guard: crashes, slow regexes (ReDoS) and rewritten attacks." },
   { k: "cloud", name: "Cloud & sign-in logs", icon: "☁️", desc: "Hunts AWS CloudTrail and traffic logs for AI-driven intrusion patterns like ARTEX." },
@@ -401,7 +425,7 @@ const SCANS = [
 let token = ""; try { token = sessionStorage.getItem("shieldToken") || ""; } catch {}
 let alerts = new Map(), area = "all", showDone = false, q = "", fresh = new Set(), audioOK = false, scans = {}, open = new Set();
 let sev = null, scanF = null, cur = -1, confirmAll = 0, lastCounts = {}, lastMon = {}, activityLog = [], scanAll = null, finished = new Set();
-const SCAN_NAME = Object.fromEntries([["code","Agent code"],["website","Website"],["system","This computer"],["deps","Software packages"],["supply","Supply chain"],["secrets","Secrets in history"],["malware","Malware"],["leak","Data leaks"],["outdated","Outdated software"],["fuzz","Guard fuzzing"],["cloud","Cloud & sign-in logs"],["model","AI model red-team"]]);
+const SCAN_NAME = Object.fromEntries([["code","Agent code"],["website","Website"],["system","This computer"],["deps","Software packages"],["supply","Supply chain"],["secrets","Secrets in history"],["malware","Malware"],["leak","Data leaks"],["outdated","Outdated software"],["crypto","Cryptography"],["fuzz","Guard fuzzing"],["cloud","Cloud & sign-in logs"],["model","AI model red-team"]]);
 let REF_NAMES = {};
 const MON_AREA = { "Payments": "finance", "Files (ransomware)": "ransomware", "Sign-ins & cloud": "identity", "Outbound traffic": "network" };
 
@@ -453,7 +477,9 @@ function scanCards() {
     const auto = s.trigger ? `<br><span class="autonote">⚡ ${s.running ? "Started" : "Ran"} automatically · ${esc(s.trigger)}</span>` : "";
     const text = `<span><b style="font-weight:600">${head}</b>${!s.running && (s.error || s.summary) ? `<br><span class="desc" style="font-size:12.5px">${esc(s.error || s.summary)}</span>` : ""}${auto}</span>`;
     const site = k === "website" ? `<div class="field"><input type="url" id="siteUrl" placeholder="https://your-site.example" value="${esc(sessionGet("siteUrl") || scans.websiteDefault || "")}" aria-label="Website address">
-      <label id="authRow" hidden><input type="checkbox" id="siteAuth"> I own this site or am authorised to test it</label></div>` : "";
+      <div class="presets"><button class="chip" data-site="${esc(scans.websiteDefault || "")}">Agent Desk console</button><button class="chip" data-site="https://www.airwallex.com/app">Airwallex web app</button></div>
+      <label id="authRow" hidden><input type="checkbox" id="siteAuth"> I own this site or may test it (full check)</label>
+      <span class="desc passive-note" id="passiveNote" hidden>Not on your list: a passive check only (the page, its headers and TLS, like a browser visit). Tick the box for the full check.</span></div>` : "";
     const disabled = s.running || (k === "model" && !scans.modelReady);
     const note = k === "model" && !scans.modelReady ? `<span class="desc" style="font-size:12.5px">Needs a model API key on the server.</span>` : "";
     const passed = (s.passed || []).length ? `<details class="more"><summary>${s.passed.length} check${s.passed.length === 1 ? "" : "s"} passed</summary><ul class="passed">${s.passed.map((p) => `<li>${esc(p)}</li>`).join("")}</ul></details>` : "";
@@ -471,7 +497,7 @@ function scanCards() {
     </div>`;
   }).join("");
   finished.clear(); tick(); scanAllButton();
-  const u = $("siteUrl"); if (u) { const check = () => { let h = ""; try { h = new URL(/^https?:/.test(u.value) ? u.value : "https://" + u.value).hostname; } catch {} $("authRow").hidden = !h || (scans.allowedHosts || []).includes(h); }; u.oninput = () => { sessionSet("siteUrl", u.value); check(); }; check(); }
+  const u = $("siteUrl"); if (u) { const check = () => { let h = ""; try { h = new URL(/^https?:/.test(u.value) ? u.value : "https://" + u.value).hostname; } catch {} $("authRow").hidden = !h || (scans.allowedHosts || []).includes(h); $("passiveNote").hidden = $("authRow").hidden || $("siteAuth").checked; }; $("siteAuth").onchange = check; u.oninput = () => { sessionSet("siteUrl", u.value); check(); }; check(); }
 }
 function sessionGet(k) { try { return sessionStorage.getItem(k); } catch { return null; } }
 function sessionSet(k, v) { try { sessionStorage.setItem(k, v); } catch {} }
@@ -557,22 +583,43 @@ function toolbar() {
     `<button class="seg ${area === "all" ? "on" : ""}" data-area="all">Everything <span class="c">${list.length}</span></button>` +
     areas.map((k) => `<button class="seg ${area === k ? "on" : ""}" data-area="${k}">${AREA[k]} <span class="c">${counts[k]}</span></button>`).join("") +
     `<button class="seg ${showDone ? "on" : ""}" id="doneBtn">${showDone ? "Hide handled" : "Show handled"}</button>` +
+    `<button class="seg ${solView ? "on" : ""}" id="solView" aria-pressed="${solView}">💡 Solutions</button>` +
     `<input class="search" id="search" type="search" placeholder="Search alerts  ( / )" value="${esc(q)}" aria-label="Search alerts">`;
   $("search").oninput = (e) => { q = e.target.value; cur = -1; render(true); };
   filterChips();
+}
+let SOLUTIONS = [], solView = false; const solTab = new Set();
+const solFor = (rule) => SOLUTIONS.find((x) => x.re.test(rule));
+function solHtml(sol, a) {
+  if (!sol) return `<div class="sol"><p class="desc">No playbook for this rule yet.</p>${a && a.fix ? `<div class="todo"><b>What to do:</b> ${esc(a.fix)}</div>` : ""}</div>`;
+  return `<div class="sol"><p class="why">${esc(sol.why)}</p>${a && a.fix ? `<div class="opt"><h5><span class="k now">For this alert</span></h5><p>${esc(a.fix)}</p></div>` : ""}` +
+    sol.options.map((o) => `<div class="opt"><h5><span class="k ${o.kind === "Quick fix" ? "now" : o.kind === "Proper fix" ? "fix" : "keep"}">${esc(o.kind)}</span></h5><ol>${o.steps.map((x) => `<li>${esc(x)}</li>`).join("")}</ol>${o.code ? `<pre><code>${esc(o.code)}</code></pre>` : ""}</div>`).join("") +
+    `<p class="srefs">${sol.refs.map((r) => `<a href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.label)} ↗</a>`).join(" · ")}</p></div>`;
+}
+function renderSolutions(list) {
+  const groups = new Map();
+  for (const a of list.filter((x) => !x.acknowledged)) { const s = solFor(a.rule); const k = s ? s.id : "other"; if (!groups.has(k)) groups.set(k, { s, alerts: [] }); groups.get(k).alerts.push(a); }
+  const order = [...groups.values()].sort((x, y) => Math.max(...y.alerts.map((a) => SEV.indexOf(a.severity))) - Math.max(...x.alerts.map((a) => SEV.indexOf(a.severity))) || y.alerts.length - x.alerts.length);
+  return order.length ? order.map(({ s, alerts: as }) => { const worst = as.reduce((w, a) => SEV.indexOf(a.severity) > SEV.indexOf(w) ? a.severity : w, "info");
+    return `<details class="al solcard" style="--c:var(--${worst})"><summary><span class="tag">${as.length} alert${as.length === 1 ? "" : "s"}</span><span class="ttl">${esc(s ? s.title : "Other findings")}</span><span class="meta"><span>worst: ${PLAIN[worst]}</span></span></summary>
+      <div class="body"><ul class="affected">${as.slice(0, 8).map((a) => `<li><a href="#" data-open="${a.id}">${esc(a.title)}</a></li>`).join("")}${as.length > 8 ? `<li class="desc">and ${as.length - 8} more</li>` : ""}</ul>${solHtml(s, as.length === 1 ? as[0] : null)}</div></details>`; }).join("")
+    : `<div class="empty"><b>Nothing open</b>Solutions appear here for every open alert.</div>`;
 }
 function render(keepToolbar) {
   if (!keepToolbar && !(document.activeElement && document.activeElement.id === "search")) toolbar();
   const list = visible();
   if (keepToolbar) filterChips();
+  if (solView) { $("feed").innerHTML = renderSolutions(list); banner(); monitors(); return; }
   $("feed").innerHTML = list.length ? list.map((a) => `
     <details class="al ${fresh.has(a.id) ? "new" : ""} ${a.acknowledged ? "done" : ""}" style="--c:var(--${a.severity})" data-id="${a.id}" ${open.has(a.id) ? "open" : ""}>
       <summary><span class="tag">${PLAIN[a.severity]}</span><span class="ttl">${esc(a.title)}</span><span class="meta"><span>${AREA[a.source] || a.source}</span><span>${a.updatedAt ? "updated " + ago(a.updatedAt) : ago(a.at)}</span></span></summary>
       <div class="body">
+        <div class="tabs" role="tablist"><button role="tab" data-tab="det" aria-selected="${!solTab.has(a.id)}">Details</button><button role="tab" data-tab="sol" aria-selected="${solTab.has(a.id)}">💡 Solutions</button></div>
+        ${solTab.has(a.id) ? solHtml(solFor(a.rule), a) : `
         <div class="what">${esc(a.detail)}</div>
         ${a.fix ? `<div class="todo"><b>What to do:</b> ${esc(a.fix)}</div>` : ""}
         <div class="facts">${a.where ? `<span>Where: ${esc(a.where)}</span>` : ""}<span>Rule ${esc(a.rule)}</span>${a.evidence && a.evidence.zapRule ? `<span>OWASP ZAP rule ${esc(a.evidence.zapRule)}</span>` : ""}${a.evidence && a.evidence.caught ? `<span>Caught ${esc(a.evidence.caught)}</span>` : ""}<span>${new Date(a.at).toLocaleString()}</span></div>
-        ${(a.refs || []).length ? `<div class="refs">${a.refs.map((r) => `<span class="ref" title="${esc(REF_NAMES[r] || r)}"><b>${esc(r)}</b> ${esc(REF_NAMES[r] || "")}</span>`).join("")}</div>` : ""}
+        ${(a.refs || []).length ? `<div class="refs">${a.refs.map((r) => `<span class="ref" title="${esc(REF_NAMES[r] || r)}"><b>${esc(r)}</b> ${esc(REF_NAMES[r] || "")}</span>`).join("")}</div>` : ""}`}
         <div class="row-actions">${a.acknowledged ? `<span class="desc">Handled by ${esc(a.acknowledged.by)} · ${ago(a.acknowledged.at)}</span>` : `<button class="btn small primary" data-ack="${a.id}">✓ Mark as handled</button>`}<button class="btn small ghost" data-copy="${a.id}">Copy details</button></div>
       </div>
     </details>`).join("")
@@ -693,11 +740,13 @@ function autoPanel(st) {
     return `<li><span class="k ${r.reason === "schedule" ? "s" : ""}">⚡ ${r.kinds.map((k) => SCAN_NAME[k] || k).join(", ")}</span><span>${why}${skip}</span><time datetime="${r.at}">${ago(r.at)}</time></li>`;
   }).join("") : `<li class="none">${a.enabled ? "No automatic scans yet. Try the Malware or AI-driven intrusion drill below." : "Automatic scans are off."}</li>`;
 }
+async function loadSolutions() { try { SOLUTIONS = (await api("/api/solutions")).map((x) => ({ ...x, re: new RegExp(x.match) })); } catch { SOLUTIONS = []; } }
 async function load() {
   const s = await api("/api/state");
   alerts = new Map((s.alerts || []).map((a) => [a.id, a]));
   REF_NAMES = s.refNames || {};
   scans = s.scans || {}; $("target").textContent = s.target || "—";
+  await loadSolutions();
   monitors(s.status); probe(s.scan); email(s.email); redteamCard(s.redteam); scanCards(); render(); autoPanel(s.autoScan);
 }
 function connect() {
@@ -723,7 +772,7 @@ function connect() {
 // ---- interactions -------------------------------------------------------
 document.addEventListener("click", async (e) => {
   audioOK = true;
-  const o = e.target.closest("[data-open]"); if (o) { e.preventDefault(); openAlert(o.dataset.open); return; }
+  const o = e.target.closest("[data-open]"); if (o) { e.preventDefault(); if (solView) { solView = false; render(); } openAlert(o.dataset.open); return; }
   const t = e.target.closest("button"); if (!t) return;
   if (t.dataset.ack) { t.disabled = true; await api("/api/ack", { method: "POST", body: JSON.stringify({ id: t.dataset.ack, by: "support" }) }); snack("Marked as handled"); }
   else if (t.dataset.copy) { copy(alertText(alerts.get(t.dataset.copy))); }
@@ -746,20 +795,21 @@ document.addEventListener("click", async (e) => {
     activity(`Automatic scans turned <b>${on ? "on" : "off"}</b>`, on ? "var(--ok)" : "var(--faint)");
   }
   else if (t.id === "scanAll") {
-    const kinds = ["code", "system", "deps", "outdated", "supply", "secrets", "malware", "leak", "fuzz", "cloud", "website"].concat(scans.modelReady ? ["model"] : []);
+    const kinds = ["code", "system", "deps", "outdated", "crypto", "supply", "secrets", "malware", "leak", "fuzz", "cloud", "website"].concat(scans.modelReady ? ["model"] : []);
     const u = $("siteUrl"); const url = u ? u.value.trim() : "";
-    const needsAuth = $("authRow") && !$("authRow").hidden && !$("siteAuth").checked;
-    scanAll = needsAuth ? kinds.filter((k) => k !== "website") : kinds;
-    if (needsAuth) snack("Skipping the website: tick “I own this site” to include it");
+    scanAll = kinds;
     for (const k of scanAll) { scans[k] = { ...(scans[k] || {}), running: true, startedAt: new Date().toISOString() }; }
     scanCards();
     for (const k of scanAll) api("/api/scan/" + k, { method: "POST", body: JSON.stringify(k === "website" ? { url, authorised: !!($("siteAuth") && $("siteAuth").checked) } : {}) });
   }
   else if (t.dataset.area) { area = t.dataset.area; sev = null; scanF = null; cur = -1; render(); if (t.classList.contains("mon")) $("alertsSection").scrollIntoView({ behavior: "smooth" }); }
   else if (t.id === "doneBtn") { showDone = !showDone; render(); }
+  else if (t.id === "solView") { solView = !solView; render(); }
+  else if (t.dataset.tab) { const id = t.closest(".al").dataset.id; t.dataset.tab === "sol" ? solTab.add(id) : solTab.delete(id); render(true); }
+  else if (t.dataset.site !== undefined && t.closest(".presets")) { const u = $("siteUrl"); u.value = t.dataset.site; u.dispatchEvent(new Event("input")); }
   else if (t.dataset.scan) {
     const k = t.dataset.scan, body = {};
-    if (k === "website") { body.url = $("siteUrl").value.trim(); body.authorised = $("siteAuth").checked; if (!$("authRow").hidden && !body.authorised) { $("authRow").style.color = "var(--critical)"; return; } }
+    if (k === "website") { body.url = $("siteUrl").value.trim(); body.authorised = $("siteAuth").checked; }
     scans[k] = { ...(scans[k] || {}), running: true, startedAt: new Date().toISOString() }; scanCards();
     api("/api/scan/" + k, { method: "POST", body: JSON.stringify(body) });
   }

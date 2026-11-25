@@ -5,7 +5,7 @@
  *   GET  /api/state           alerts, counts, scan summary, monitor status
  *   GET  /api/stream          live events (Server-Sent Events): alert, ack, emailed, activity
  *   POST /api/scan            re-scan the target code
- *   POST /api/scan/:kind      code | website | system | deps | supply | secrets | fuzz | malware | leak | outdated | cloud | model   ({"url", "authorised"} for website)
+ *   POST /api/scan/:kind      code | website | system | deps | supply | secrets | fuzz | malware | leak | outdated | crypto | cloud | model   ({"url", "authorised"} for website)
  *   POST /api/autoscan        {"enabled": true|false} turn automatic follow-up scans on or off
  *   POST /api/ack             {"id"} acknowledge an alert
  *   POST /api/simulate/:what  ransomware | finance | artex | reset  (sandbox drills)
@@ -52,6 +52,8 @@ import { writeFileSync as writeFile, readFileSync as readFile, mkdirSync as mkdi
 import { scanMalware, scanFile, loadHashList } from "./detectors/malware.ts";
 import { scanLeaks, leaksInText } from "./detectors/leak.ts";
 import { scanOutdated } from "./detectors/outdated.ts";
+import { scanCrypto } from "./detectors/crypto.ts";
+import { solutionsJson } from "./solutions.ts";
 import { AutoScanner, CATEGORY_LABEL, type AutoKind, type Round } from "./autoscan.ts";
 
 const PORT = Number(process.env.PORT ?? 4600);
@@ -160,7 +162,7 @@ function status() {
 
 const dcInstalled = Boolean(dependencyCheckVersion());
 function frameworks() {
-  const rules = [...new Set(["MAL-REVERSE-SHELL","MAL-WEBSHELL","MAL-MINER","MAL-OBFUSCATED-EXEC","MAL-DROPPER","MAL-CREDENTIAL-STEALER","MAL-HIDDEN-EXECUTABLE","MAL-KNOWN-HASH","LEAK-CARD-NUMBER","LEAK-SECRET-IN-LOGS","LEAK-BULK-PII","LEAK-SENSITIVE-FILE-TRACKED","OLD-DEPRECATED","OLD-MAJOR-BEHIND","OLD-UNMAINTAINED","OLD-RUNTIME","OLD-BASE-IMAGE","OLD-CLOUD-RUNTIME","OLD-OS-EOL","ACC-APPROVER-FROM-INPUT","ACC-SELF-APPROVAL","ACC-IAM-ALL-ACTIONS","CODE-EVAL","CODE-MONEY-NO-APPROVAL","CODE-MONEY-NO-IDEMPOTENCY","CODE-SECRET","FIN-UNLOGGED-TRANSFER","FIN-WEBHOOK-REJECTED","FUZZ-GUARD-BYPASS","FUZZ-GUARD-REDOS","FUZZ-GUARD-CRASH","LLM-CARD-DATA","LLM-OUTPUT-AS-AMOUNT","LLM-UNFENCED-INPUT","LLM-PROBE-FALSE-POSITIVE","SEMGREP-AGENT-MODEL-OUTPUT-TO-PAYMENT","SUPPLY-SIGNATURE-INVALID","SYS-VULN-DEPENDENCY","ID-LOG-TAMPER","RANSOM-NOTE","WEB-NO-CSP","LLM-SYSPROMPT-SECRET","LLM-VECTOR-NO-FILTER","LLM-CONTEXT-POISONED","LLM-TRAINING-POISONED","LLM-MISINFO","LLM-UNVALIDATED-OUTPUT","AGENT-X402-NO-LIMIT","AGENT-MCP-NO-AUTH","AGENT-A2A-NO-AUTH","ID-LLMJACKING","ID-S3-SSEC-ENCRYPT", ...bus.list().map((a) => a.rule)])];
+  const rules = [...new Set(["CRYPTO-WEAK-HASH","CRYPTO-DEPRECATED-CIPHER","CRYPTO-STATIC-IV","CRYPTO-INSECURE-RANDOM","CRYPTO-HARDCODED-KEY","CRYPTO-WEAK-KEY","CRYPTO-JWT-NONE","CRYPTO-TIMING-COMPARE","CRYPTO-WEAK-PASSWORD-HASH","CRYPTO-PLAINTEXT-HTTP","CRYPTO-STORAGE-UNENCRYPTED","CRYPTO-KMS-NO-ROTATION","CRYPTO-OLD-TLS-POLICY","CRYPTO-BUCKET-NO-TLS","CRYPTO-CDN-HTTP-ORIGIN","CRYPTO-TLS-OLD-PROTOCOL","CRYPTO-TLS-WEAK-CIPHER","CRYPTO-NO-FORWARD-SECRECY","CRYPTO-CERT-WEAK-KEY","CRYPTO-CERT-WEAK-SIGNATURE","MAL-REVERSE-SHELL","MAL-WEBSHELL","MAL-MINER","MAL-OBFUSCATED-EXEC","MAL-DROPPER","MAL-CREDENTIAL-STEALER","MAL-HIDDEN-EXECUTABLE","MAL-KNOWN-HASH","LEAK-CARD-NUMBER","LEAK-SECRET-IN-LOGS","LEAK-BULK-PII","LEAK-SENSITIVE-FILE-TRACKED","OLD-DEPRECATED","OLD-MAJOR-BEHIND","OLD-UNMAINTAINED","OLD-RUNTIME","OLD-BASE-IMAGE","OLD-CLOUD-RUNTIME","OLD-OS-EOL","ACC-APPROVER-FROM-INPUT","ACC-SELF-APPROVAL","ACC-IAM-ALL-ACTIONS","CODE-EVAL","CODE-MONEY-NO-APPROVAL","CODE-MONEY-NO-IDEMPOTENCY","CODE-SECRET","FIN-UNLOGGED-TRANSFER","FIN-WEBHOOK-REJECTED","FUZZ-GUARD-BYPASS","FUZZ-GUARD-REDOS","FUZZ-GUARD-CRASH","LLM-CARD-DATA","LLM-OUTPUT-AS-AMOUNT","LLM-UNFENCED-INPUT","LLM-PROBE-FALSE-POSITIVE","SEMGREP-AGENT-MODEL-OUTPUT-TO-PAYMENT","SUPPLY-SIGNATURE-INVALID","SYS-VULN-DEPENDENCY","ID-LOG-TAMPER","RANSOM-NOTE","WEB-NO-CSP","LLM-SYSPROMPT-SECRET","LLM-VECTOR-NO-FILTER","LLM-CONTEXT-POISONED","LLM-TRAINING-POISONED","LLM-MISINFO","LLM-UNVALIDATED-OUTPUT","AGENT-X402-NO-LIMIT","AGENT-MCP-NO-AUTH","AGENT-A2A-NO-AUTH","ID-LLMJACKING","ID-S3-SSEC-ENCRYPT", ...bus.list().map((a) => a.rule)])];
   const open = bus.list().filter((a) => !a.acknowledged);
   const byRef: Record<string, number> = {};
   for (const a of open) for (const r of (a as any).refs ?? []) byRef[r] = (byRef[r] ?? 0) + 1;
@@ -212,9 +214,9 @@ setInterval(() => {
 }, 2000);
 
 // ---- one-click scans -----------------------------------------------------------
-type Kind = "code" | "website" | "system" | "deps" | "supply" | "secrets" | "fuzz" | "malware" | "leak" | "outdated" | "cloud" | "model";
+type Kind = "code" | "website" | "system" | "deps" | "supply" | "secrets" | "fuzz" | "malware" | "leak" | "outdated" | "crypto" | "cloud" | "model";
 interface ScanState { running: boolean; trigger?: string; startedAt?: string; ids?: string[]; at?: string; summary?: string; issues?: number; worst?: string; error?: string; passed?: string[]; detail?: Record<string, unknown> }
-const scans: Record<Kind, ScanState> = { code: { running: false }, website: { running: false }, system: { running: false }, deps: { running: false }, supply: { running: false }, secrets: { running: false }, fuzz: { running: false }, malware: { running: false }, leak: { running: false }, outdated: { running: false }, cloud: { running: false }, model: { running: false } };
+const scans: Record<Kind, ScanState> = { code: { running: false }, website: { running: false }, system: { running: false }, deps: { running: false }, supply: { running: false }, secrets: { running: false }, fuzz: { running: false }, malware: { running: false }, leak: { running: false }, outdated: { running: false }, crypto: { running: false }, cloud: { running: false }, model: { running: false } };
 const DEFAULT_WEBSITE = process.env.WEBSITE_URL ?? "https://d1zoxhgak5pvwd.cloudfront.net/";
 const worstOf = (fs: Finding[]) => ["critical", "high", "medium", "low", "info"].find((s) => fs.some((f) => f.severity === s)) ?? "none";
 
@@ -248,10 +250,10 @@ async function runKind(kind: Kind, opts: { url?: string; authorised?: boolean; t
       owaspState.secureHeaders = { source: shp.source, updated: shp.updated, remove: shp.remove.length, add: shp.add.length };
       const r = await scanWebsite(opts.url || DEFAULT_WEBSITE, { authorised: opts.authorised, secureHeaders: shp });
       fs = r.findings;
-      if (process.env.ZAP_API_URL) {
+      if (process.env.ZAP_API_URL && r.mode === "full") { // ZAP spiders the site: only for sites you own
         try { const rep = await zapBaseline(r.url); mkdirp(join(STATE, "zap"), { recursive: true }); writeFile(join(STATE, "zap", `baseline-${Date.now()}.json`), rep); const z = zapFindings(rep); fs = [...fs, ...z]; owaspState.zap = { mode: "api", at: new Date().toISOString(), alerts: z.length }; }
         catch (e) { owaspState.zap = { mode: "api", error: (e as Error).message }; }
-      } Object.assign(st, { summary: `${new URL(r.url).host} · ${r.requests} read-only requests`, passed: r.passed, detail: { url: r.url } });
+      } Object.assign(st, { summary: `${new URL(r.url).host} · ${r.mode === "passive" ? "passive check (not your site)" : "full check"} · ${r.requests} read-only requests`, passed: r.passed, detail: { url: r.url, mode: r.mode } });
     } else if (kind === "system") {
       const r = scanSystem({ targetDir: target.dir, watchDirs: [watchDir] });
       fs = r.findings; Object.assign(st, { summary: `${r.host} · ${r.listening.length} listening service${r.listening.length === 1 ? "" : "s"} checked`, passed: r.passed, detail: { listening: r.listening } });
@@ -290,6 +292,10 @@ async function runKind(kind: Kind, opts: { url?: string; authorised?: boolean; t
       const r = await scanLeaks([{ dir: target.runs, kind: "runs" }, { dir: demoRuns, kind: "runs" }, { dir: join(process.cwd(), "logs"), kind: "logs" }, { dir: join(process.cwd(), "outbox"), kind: "emails" }, { dir: watchDir, kind: "exports" },
         ...(process.env.LEAK_DIRS ?? "").split(",").filter(Boolean).map((d) => ({ dir: d, kind: "logs" as const }))], [target.dir, process.cwd()]);
       fs = r.findings; Object.assign(st, { summary: r.summary, passed: r.passed });
+    } else if (kind === "crypto") {
+      const sites = [opts.url || DEFAULT_WEBSITE, ...CRYPTO_SITES];
+      const r = await scanCrypto([target.dir, process.cwd()], sites, process.cwd());
+      fs = r.findings; Object.assign(st, { summary: r.summary, passed: r.passed, detail: { tls: r.tls } });
     } else if (kind === "outdated") {
       const r = await scanOutdated([target.dir, process.cwd()], join(STATE, "intel"));
       fs = r.findings; Object.assign(st, { summary: r.summary, passed: r.passed });
@@ -307,6 +313,8 @@ async function runKind(kind: Kind, opts: { url?: string; authorised?: boolean; t
     st.error = (e as Error).message; st.at = new Date().toISOString();
   } finally { st.running = false; push("scans", scanStates()); }
 }
+/** Sites whose TLS the crypto scan checks besides the default website (handshakes only). */
+const CRYPTO_SITES = (process.env.CRYPTO_SITES ?? "https://www.airwallex.com/app").split(",").map((x) => x.trim()).filter(Boolean);
 const cloudDataDirs = () => (process.env.MALWARE_DIRS ?? "").split(",").filter(Boolean);
 const scanStates = () => ({ ...scans, websiteDefault: DEFAULT_WEBSITE, allowedHosts: allowedHosts(), modelReady: redteamReady() });
 
@@ -471,12 +479,13 @@ createServer(async (req, res) => {
     if (req.method === "GET" && url.pathname === "/api/state")
       return json(res, 200, { autoScan: auto.state(), scans: scanStates(), redteam: redteamSummary(), target: target.name, alerts: bus.list(), refNames: REF_NAMES, counts: bus.counts(), scan: scanSummary(), status: status(), email: { to: emailCfg.to, minSeverity: emailCfg.minSeverity, mode: emailCfg.smtpUrl ? "smtp" : "outbox", recent: activity.emails } });
     if (req.method === "POST" && url.pathname === "/api/scan") return json(res, 200, await runScan());
-    const kind = /^\/api\/scan\/(code|website|system|deps|supply|secrets|fuzz|malware|leak|outdated|cloud|model)$/.exec(url.pathname);
+    const kind = /^\/api\/scan\/(code|website|system|deps|supply|secrets|fuzz|malware|leak|outdated|crypto|cloud|model)$/.exec(url.pathname);
     if (req.method === "POST" && kind) {
       const b = await body(req);
       runKind(kind[1] as Kind, { url: b.url ? String(b.url) : undefined, authorised: b.authorised === true });
       return json(res, 202, { started: kind[1] });
     }
+    if (req.method === "GET" && url.pathname === "/api/solutions") return json(res, 200, solutionsJson());
     if (req.method === "POST" && url.pathname === "/api/autoscan") {
       const b = await body(req);
       if (typeof b.enabled === "boolean") auto.enabled = b.enabled;

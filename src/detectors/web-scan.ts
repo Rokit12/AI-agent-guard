@@ -11,14 +11,17 @@
  *  - CORS that reflects any origin with credentials
  *  - server software and versions given away in headers
  *
- * Only hosts in SCAN_ALLOWED_HOSTS (plus the console and localhost) are scanned unless the
- * caller confirms they are authorised to test the site.
+ * Sites you own (SCAN_ALLOWED_HOSTS, the console, localhost, or confirmed "I own or may test this
+ * site") get the full check. Any other public site gets a passive check only: the page itself,
+ * its HTTP-to-HTTPS redirect and TLS handshakes, the same requests a browser or SSL Labs makes,
+ * and no probing for hidden files, source maps or CORS behaviour.
  */
+import { tlsFindings } from "./crypto.ts";
 import { connect } from "node:tls";
 import type { Finding, Severity } from "../alerts.ts";
 import { checkSecureHeaders, ZAP_RULE, type SecureHeaderLists } from "../integrations/owasp.ts";
 
-export interface WebScanResult { url: string; at: string; requests: number; findings: Finding[]; passed: string[]; summary: string }
+export interface WebScanResult { url: string; at: string; requests: number; findings: Finding[]; passed: string[]; summary: string; mode: "full" | "passive" }
 
 const UA = "AgentShield-WebScan/0.1 (+passive security check)";
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -77,8 +80,7 @@ const SENSITIVE: [string, Severity, string][] = [
 
 export async function scanWebsite(input: string, opts: { authorised?: boolean; secureHeaders?: SecureHeaderLists } = {}): Promise<WebScanResult> {
   const url = new URL(/^https?:\/\//.test(input) ? input : `https://${input}`);
-  if (!allowedHosts().includes(url.hostname) && !opts.authorised)
-    throw new Error(`${url.hostname} is not on the allowed list. Confirm you own or are authorised to test it, or add it to SCAN_ALLOWED_HOSTS.`);
+  const mode: "full" | "passive" = allowedHosts().includes(url.hostname) || opts.authorised ? "full" : "passive";
   const base = `${url.protocol}//${url.host}`;
   const out: Finding[] = [], passed: string[] = [];
   let requests = 0;
@@ -103,6 +105,9 @@ export async function scanWebsite(input: string, opts: { authorised?: boolean; s
     const days = await certDaysLeft(url.hostname, Number(url.port || 443));
     if (days !== null && days < 14) f("WEB-CERT-EXPIRING", days < 3 ? "critical" : "high", `TLS certificate expires in ${days} days`, "When it expires every visitor gets a security error.", "Renew it now; use automatic renewal (ACM renews CloudFront certificates on its own).");
     else if (days !== null) passed.push(`Certificate valid for ${days} more days`);
+    // cryptographic checks on the TLS connection (A04:2025)
+    const t = await tlsFindings(url.hostname, Number(url.port || 443));
+    out.push(...t.findings); passed.push(...t.passed);
   } else f("WEB-HTTP-ONLY", "high", "Site is served over plain HTTP", "Everything, including any login, crosses the network unencrypted.", "Serve it over HTTPS only.");
 
   // 3. Browser protections
@@ -132,6 +137,12 @@ export async function scanWebsite(input: string, opts: { authorised?: boolean; s
     if (missing.length) f("WEB-COOKIE-FLAGS", missing.includes("Secure") ? "medium" : "low", `Cookie ${name} is missing ${missing.join(", ")}`, "Cookies without these flags can be read by scripts, sent over HTTP, or sent by other sites.", "Set Secure; HttpOnly; SameSite=Lax (or Strict) on session cookies.", `${base} · cookie ${name}`);
   }
   if (!cookies.length) passed.push("No cookies set without protection");
+
+  if (mode === "passive") {
+    const bad = out.filter((x) => x.severity !== "info").length;
+    passed.push("Passive check: hidden-file, source-map and CORS probes skipped (not your site)");
+    return { url: url.href, at: new Date().toISOString(), requests, findings: out, passed, mode, summary: `${bad ? `${bad} issue${bad === 1 ? "" : "s"}` : "No issues"} · passive check, ${requests} requests` };
+  }
 
   // 6. Files that should never be public
   let exposed = 0;
@@ -170,5 +181,5 @@ export async function scanWebsite(input: string, opts: { authorised?: boolean; s
   }
 
   const bad = out.filter((x) => x.severity !== "info").length;
-  return { url: url.href, at: new Date().toISOString(), requests, findings: out, passed, summary: bad ? `${bad} issue${bad === 1 ? "" : "s"} in ${requests} requests` : `No issues in ${requests} requests` };
+  return { url: url.href, at: new Date().toISOString(), requests, findings: out, passed, mode, summary: bad ? `${bad} issue${bad === 1 ? "" : "s"} in ${requests} requests` : `No issues in ${requests} requests` };
 }
